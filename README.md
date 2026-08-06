@@ -92,24 +92,6 @@ Jetson과 STM32 사이에서 명령과 상태 데이터를 구분하고 통신 �
 
 ---
 
-## System Architecture
-
-```mermaid
-flowchart TB
-    J["Jetson / PC Test Program<br/>Target Angle / Heartbeat 송신<br/>ACK / Current Angle / Status 수신"]
-
-    C["STM32 Communication Task<br/>Frame Build & Parsing<br/>Checksum / ACK / Timeout"]
-
-    M["STM32 Motor Task<br/>Target Angle 기반 모터 제어<br/>Move Done / Error 생성"]
-
-    E["Encoder Task<br/>AS5600 현재 각도 측정"]
-
-    J <-->|UART RX / TX| C
-    C -->|motorCommandQueue<br/>Target Angle| M
-    M -->|motorStatusQueue<br/>Move Done / Error| C
-    E -->|Current Angle| C
-```
-
 ### Command Flow
 
 ```text
