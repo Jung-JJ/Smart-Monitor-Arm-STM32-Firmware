@@ -1,3 +1,0 @@
-../Core/Src/servo.c:23:10:Servo_AngleToPulse	3
-../Core/Src/servo.c:45:15:Servo_Init	3
-../Core/Src/servo.c:81:15:Servo_SetAngle	8

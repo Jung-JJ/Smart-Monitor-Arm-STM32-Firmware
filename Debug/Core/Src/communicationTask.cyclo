@@ -1,6 +1,0 @@
-../Core/Src/communicationTask.c:38:16:Protocol_ReadInt16BigEndian	1
-../Core/Src/communicationTask.c:49:13:Communication_SendAck	2
-../Core/Src/communicationTask.c:76:13:Communication_WriteInt16BigEndian	2
-../Core/Src/communicationTask.c:93:16:Communication_DegreeToX10	2
-../Core/Src/communicationTask.c:111:16:Communication_SendCurrentAngle	4
-../Core/Src/communicationTask.c:159:6:StartCommunicationTask	18
