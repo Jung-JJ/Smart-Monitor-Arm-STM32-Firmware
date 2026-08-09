@@ -11,6 +11,11 @@
 #define UART_RX_WAIT_TIMEOUT_MS       5U
 #define CURRENT_ANGLE_TX_PERIOD_MS    200U
 
+//아래 3개 삭제
+volatile uint32_t debugSetTargetRxCount = 0U;
+volatile uint32_t debugSetTargetQueueOkCount = 0U;
+volatile uint32_t debugSetTargetQueueFailCount = 0U;
+
 extern osMessageQueueId_t motorCommandQueueHandle;
 extern osMessageQueueId_t motorStatusQueueHandle;
 
@@ -34,6 +39,7 @@ volatile uint32_t currentAngleTxCount = 0U;
 volatile uint32_t currentAngleTxErrorCount = 0U;
 volatile int16_t debugCurrentAngleX10 = 0;
 volatile uint32_t motorQueueCount = 0U; //디버그 변수
+
 
 static int16_t Protocol_ReadInt16BigEndian(const uint8_t *data)
 {
@@ -156,6 +162,57 @@ static uint8_t Communication_SendCurrentAngle(void)
     return 1U;
 }
 
+static uint8_t Communication_SendCurrentCommandAngles(void)
+{
+    uint8_t angleData[6];
+
+    float theta1Deg;
+    float theta2Deg;
+    float theta3Deg;
+
+    int16_t theta1X10;
+    int16_t theta2X10;
+    int16_t theta3X10;
+
+    Motor_GetCommandedAngles(&theta1Deg,
+                             &theta2Deg,
+                             &theta3Deg);
+
+    theta1X10 = Communication_DegreeToX10(theta1Deg);
+    theta2X10 = Communication_DegreeToX10(theta2Deg);
+    theta3X10 = Communication_DegreeToX10(theta3Deg);
+
+    Communication_WriteInt16BigEndian(&angleData[0], theta1X10);
+    Communication_WriteInt16BigEndian(&angleData[2], theta2X10);
+    Communication_WriteInt16BigEndian(&angleData[4], theta3X10);
+
+    buildStatus =
+        Protocol_BuildFrame(
+            PROTOCOL_MSG_CURRENT_COMMAND_ANGLES,
+            angleData,
+            sizeof(angleData),
+            txFrame,
+            sizeof(txFrame),
+            &txFrameLength
+        );
+
+    if (buildStatus != PROTOCOL_OK)
+    {
+        return 0U;
+    }
+
+    if (HAL_UART_Transmit(&huart2,
+                          txFrame,
+                          txFrameLength,
+                          100U) != HAL_OK)
+    {
+        return 0U;
+    }
+
+    return 1U;
+}
+
+
 void StartCommunicationTask(void *argument)
 {
     uint32_t currentTick;
@@ -201,22 +258,88 @@ void StartCommunicationTask(void *argument)
                             break;
 
                         case PROTOCOL_MSG_SET_TARGET:
+                        	{
+                        		debugSetTargetRxCount++;
 
-                            if (rxMessage.data_length == 6U)
-                            {
-                            	motorCommand.type = MOTOR_COMMAND_SET_TARGET;
-                            	motorCommand.theta1_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[0]);
-                                motorCommand.theta2_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[2]);
-                                motorCommand.theta3_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[4]);
+								if (rxMessage.data_length == 6U)
+								{
+									motorCommand.type = MOTOR_COMMAND_SET_TARGET;
 
-                                queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand,
-                                		0U, 0U);
-                                if(queueStatus == osOK){
-                                	motorQueueCount = osMessageQueueGetCount(motorCommandQueueHandle);
-                                    Communication_SendAck(rxMessage.msg_id);
-                                }
-                            }
-                            break;
+									motorCommand.theta1_x10 =
+										Protocol_ReadInt16BigEndian(&rxMessage.data[0]);
+
+									motorCommand.theta2_x10 =
+										Protocol_ReadInt16BigEndian(&rxMessage.data[2]);
+
+									motorCommand.theta3_x10 =
+										Protocol_ReadInt16BigEndian(&rxMessage.data[4]);
+
+									queueStatus =
+										osMessageQueuePut(
+											motorCommandQueueHandle,
+											&motorCommand,
+											0U,
+											0U
+										);
+
+									if (queueStatus == osOK)
+									{
+										debugSetTargetQueueOkCount++;
+
+										Communication_SendAck(
+											rxMessage.msg_id
+										);
+									}
+									else
+									{
+										debugSetTargetQueueFailCount++;
+									}
+								}
+
+								break;
+                        	}
+
+                        case PROTOCOL_MSG_JOG:
+                        	if(rxMessage.data_length == 3U){
+                        		motorCommand.type = MOTOR_COMMAND_JOG;
+                        		motorCommand.axis = (MotorAxis_t)rxMessage.data[0];
+
+                        		motorCommand.delta_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[1]);
+                        		queueStatus = osMessageQueuePut(motorCommandQueueHandle,
+                        				&motorCommand, 0U, 0U);
+
+                        		if(queueStatus == osOK){
+                        			Communication_SendAck(rxMessage.msg_id);
+                        		}
+
+                        	}
+                        	break;
+                        case PROTOCOL_MSG_SET_HOME:
+						{
+							if(rxMessage.data_length == 0U){
+								motorCommand.type = MOTOR_COMMAND_SET_HOME;
+								queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
+
+								if(queueStatus ==osOK){
+									Communication_SendAck(rxMessage.msg_id);
+								}
+							}
+							break;
+						}
+
+                        case PROTOCOL_MSG_MOVE_HOME:
+                        {
+                        	if(rxMessage.data_length == 0U){
+								motorCommand.type = MOTOR_COMMAND_MOVE_HOME;
+								queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
+
+								if(queueStatus ==osOK){
+									Communication_SendAck(rxMessage.msg_id);
+								}
+							}
+							break;
+                        }
+
                         default:
                             break;
                     }
@@ -251,13 +374,14 @@ void StartCommunicationTask(void *argument)
             switch (motorStatus)
             {
                 case MOTOR_STATUS_MOVE_DONE:
-                    buildStatus =
-                        Protocol_BuildFrame(PROTOCOL_MSG_MOVE_DONE, NULL, 0U, txFrame,
+                    buildStatus = Protocol_BuildFrame(PROTOCOL_MSG_MOVE_DONE, NULL, 0U, txFrame,
                         sizeof(txFrame), &txFrameLength);
 
                     if (buildStatus == PROTOCOL_OK){
                         (void)HAL_UART_Transmit(&huart2, txFrame, txFrameLength, 100U);
                     }
+
+                    (void)Communication_SendCurrentCommandAngles();
                     break;
 
                 case MOTOR_STATUS_ERROR:

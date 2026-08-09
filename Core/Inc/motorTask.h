@@ -21,7 +21,9 @@ typedef enum
     MOTOR_STATUS_ERROR
 } MotorStatus_t;
 
-
+void Motor_GetCommandedAngles(float *theta1Deg,
+                              float *theta2Deg,
+                              float *theta3Deg);
 
 void StartMotorTask(void *argument);
 

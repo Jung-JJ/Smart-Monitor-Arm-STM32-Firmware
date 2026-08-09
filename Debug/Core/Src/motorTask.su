@@ -1,0 +1,3 @@
+../Core/Src/motorTask.c:52:16:Motor_CheckTarget	16	static
+../Core/Src/motorTask.c:76:6:Motor_GetCommandedAngles	24	static
+../Core/Src/motorTask.c:95:6:StartMotorTask	64	static

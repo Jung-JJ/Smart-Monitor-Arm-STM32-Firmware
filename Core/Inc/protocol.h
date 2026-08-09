@@ -35,7 +35,8 @@ typedef enum
     PROTOCOL_MSG_HEARTBEAT  = 0x01U,
     PROTOCOL_MSG_SET_TARGET = 0x10U,
     PROTOCOL_MSG_SET_HOME   = 0x11U,
-    PROTOCOL_MSG_MOVE_HOME  = 0x12U
+    PROTOCOL_MSG_MOVE_HOME  = 0x12U,
+	PROTOCOL_MSG_JOG		= 0x13U
 } ProtocolRxMessageId_t;
 
 /* STM32 -> Jetson message IDs */
@@ -45,7 +46,8 @@ typedef enum
     PROTOCOL_MSG_STATUS    = 0x81U,
     PROTOCOL_MSG_MOVE_DONE = 0x82U,
     PROTOCOL_MSG_ERROR     = 0x83U,
-	PROTOCOL_MSG_CURRENT_ANGLE  = 0x84U
+	PROTOCOL_MSG_CURRENT_ANGLE  = 0x84U,
+	PROTOCOL_MSG_CURRENT_COMMAND_ANGLES = 0x85U
 } ProtocolTxMessageId_t;
 
 /* Protocol function return values */
