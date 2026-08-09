@@ -11,11 +11,6 @@
 #include "as5600.h"
 #include "i2c.h"
 
-#include <stdio.h>
-#include <string.h>
-#include "usart.h"
-char uart_buf[64];
-int uart_len;
 
 #define ENCODER_TASK_PERIOD_MS    20U
 

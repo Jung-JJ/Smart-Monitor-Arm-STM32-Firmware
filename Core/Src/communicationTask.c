@@ -514,14 +514,7 @@ void StartCommunicationTask(void *argument)
 
                 case MOTOR_STATUS_ERROR:
                 {
-                	uint8_t errorData[1];
-                	errorData[0] = (uint8_t)motorStatusMessage.error;
-                    buildStatus = Protocol_BuildFrame(PROTOCOL_MSG_ERROR, errorData, sizeof(errorData), txFrame,
-                            sizeof(txFrame), &txFrameLength);
-
-                    if (buildStatus == PROTOCOL_OK){
-                        (void)HAL_UART_Transmit(&huart2, txFrame, txFrameLength, 100U);
-                    }
+                	Communication_SendError(motorStatusMessage.error);
                     break;
 
                 default:

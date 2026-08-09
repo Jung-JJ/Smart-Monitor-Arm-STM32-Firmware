@@ -46,7 +46,7 @@ volatile int16_t debugTheta3 = 0;
 
 volatile float debugStepperMoveAngleDeg = 0.0f;
 
-volatile MotorError_t motorError = MOTOR_ERROR_NONE;
+
 
 volatile MotorState_t motorState = MOTOR_STATE_IDLE;
 
@@ -185,7 +185,6 @@ void StartMotorTask(void *argument)
     }
     else
     {
-    	motorError = MOTOR_ERROR_NONE;
     	motorState = MOTOR_STATE_IDLE;
     }
 

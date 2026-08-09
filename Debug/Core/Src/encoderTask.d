@@ -42,7 +42,7 @@ Core/Src/encoderTask.o: ../Core/Src/encoderTask.c \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h \
  ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h \
- ../Drivers/BSP/STM32F4xx-Nucleo/stm32f4xx_nucleo.h ../Core/Inc/usart.h
+ ../Drivers/BSP/STM32F4xx-Nucleo/stm32f4xx_nucleo.h
 ../Core/Inc/encoderTask.h:
 ../Core/Inc/as5600.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os.h:
@@ -90,4 +90,3 @@ Core/Src/encoderTask.o: ../Core/Src/encoderTask.c \
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_tim_ex.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal_uart.h:
 ../Drivers/BSP/STM32F4xx-Nucleo/stm32f4xx_nucleo.h:
-../Core/Inc/usart.h:

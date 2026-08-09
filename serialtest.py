@@ -5,7 +5,7 @@ import time
 
 
 # ============================================================
-# SERIAL
+# SERIAL CONFIG
 # ============================================================
 
 PORT = "COM9"
@@ -13,6 +13,11 @@ BAUD = 115200
 
 START = 0xAA
 END = 0x55
+MAX_DATA_LENGTH = 16
+
+# Heartbeat ACK가 계속 출력되어 입력창이 지저분해지는 것을 방지
+# 확인하고 싶으면 True로 변경
+SHOW_HEARTBEAT_ACK = False
 
 
 # ============================================================
@@ -33,7 +38,7 @@ MSG_JOG = 0x13
 
 MSG_ACK = 0x80
 MSG_STATUS = 0x81
-MSG_MOVE_DONE = 0x82
+MSG_COMMAND_DONE = 0x82
 MSG_ERROR = 0x83
 MSG_CURRENT_ANGLE = 0x84
 MSG_CURRENT_COMMAND_ANGLES = 0x85
@@ -50,11 +55,39 @@ AXIS_THETA3 = 3
 
 
 # ============================================================
+# COMMAND / ERROR NAME
+# ============================================================
+
+COMMAND_NAMES = {
+    MSG_HEARTBEAT: "HEARTBEAT",
+    MSG_SET_TARGET: "SET_TARGET",
+    MSG_SET_HOME: "SET_HOME",
+    MSG_MOVE_HOME: "MOVE_HOME",
+    MSG_JOG: "JOG",
+}
+
+ERROR_NAMES = {
+    0x00: "NONE",
+    0x01: "INVALID_TARGET",
+    0x02: "INVALID_AXIS",
+    0x03: "ANGLE_LIMIT",
+    0x04: "STEPPER_BUSY",
+    0x05: "STEPPER",
+    0x06: "SERVO2",
+    0x07: "SERVO3",
+    0x08: "HOME_NOT_SET",
+    0x09: "INIT",
+    0x0A: "QUEUE",
+    0x0B: "INVALID_COMMAND",
+    0x0C: "COMM_LOST",
+}
+
+
+# ============================================================
 # GLOBAL
 # ============================================================
 
 alive_counter = 0
-
 heartbeat_enabled = True
 
 write_lock = threading.Lock()
@@ -65,7 +98,6 @@ write_lock = threading.Lock()
 # ============================================================
 
 def checksum(msg_id, data):
-
     cs = msg_id ^ len(data)
 
     for byte in data:
@@ -79,7 +111,6 @@ def checksum(msg_id, data):
 # ============================================================
 
 def build_frame(msg_id, data):
-
     frame = bytearray()
 
     frame.append(START)
@@ -105,11 +136,8 @@ def build_frame(msg_id, data):
 # ============================================================
 
 def safe_write(ser, frame):
-
     with write_lock:
-
         ser.write(frame)
-
         ser.flush()
 
 
@@ -118,14 +146,12 @@ def safe_write(ser, frame):
 # ============================================================
 
 def heartbeat_thread(ser):
-
     global alive_counter
     global heartbeat_enabled
 
     while ser.is_open:
 
         if heartbeat_enabled:
-
             alive_counter = (
                 alive_counter + 1
             ) & 0xFF
@@ -140,7 +166,6 @@ def heartbeat_thread(ser):
             )
 
             try:
-
                 safe_write(
                     ser,
                     frame
@@ -162,7 +187,6 @@ def send_set_target(
     theta2_deg,
     theta3_deg
 ):
-
     theta1_x10 = int(
         round(theta1_deg * 10.0)
     )
@@ -193,7 +217,6 @@ def send_set_target(
     )
 
     print()
-
     print(
         f"SET_TARGET TX : "
         f"theta1={theta1_deg:+.1f} deg, "
@@ -216,7 +239,6 @@ def send_jog(
     axis,
     delta_deg
 ):
-
     delta_x10 = int(
         round(delta_deg * 10.0)
     )
@@ -243,7 +265,6 @@ def send_jog(
     )
 
     print()
-
     print(
         f"JOG TX : "
         f"axis={axis}, "
@@ -261,7 +282,6 @@ def send_jog(
 # ============================================================
 
 def send_set_home(ser):
-
     data = b""
 
     frame = build_frame(
@@ -288,7 +308,6 @@ def send_set_home(ser):
 # ============================================================
 
 def send_move_home(ser):
-
     data = b""
 
     frame = build_frame(
@@ -316,299 +335,327 @@ def send_move_home(ser):
 
 def receive_thread(ser):
 
-    while ser.is_open:
+    try:
 
-        start = ser.read(1)
+        while ser.is_open:
 
-        if start != bytes([START]):
-            continue
+            # ------------------------------------------------
+            # START
+            # ------------------------------------------------
 
-        header = ser.read(2)
+            start = ser.read(1)
 
-        if len(header) != 2:
-            continue
-
-        msg_id = header[0]
-        length = header[1]
-
-        data = ser.read(length)
-
-        if len(data) != length:
-
-            print(
-                "DATA LENGTH ERROR"
-            )
-
-            continue
-
-        rx_checksum = ser.read(1)
-
-        if len(rx_checksum) != 1:
-
-            print(
-                "CHECKSUM BYTE ERROR"
-            )
-
-            continue
-
-        end = ser.read(1)
-
-        if end != bytes([END]):
-
-            print(
-                "END BYTE ERROR"
-            )
-
-            continue
-
-        calc_checksum = checksum(
-            msg_id,
-            data
-        )
-
-        if calc_checksum != rx_checksum[0]:
-
-            print(
-                f"CHECKSUM ERROR : "
-                f"RX=0x{rx_checksum[0]:02X}, "
-                f"CALC=0x{calc_checksum:02X}"
-            )
-
-            continue
-
-
-        # ====================================================
-        # ACK
-        # ====================================================
-
-        if msg_id == MSG_ACK:
-
-            if len(data) != 1:
-
-                print(
-                    "ACK LENGTH ERROR"
-                )
-
+            if len(start) == 0:
                 continue
 
-            ack_id = data[0]
+            if start != bytes([START]):
+                continue
 
-            if ack_id == MSG_HEARTBEAT:
 
+            # ------------------------------------------------
+            # MSG_ID + LENGTH
+            # ------------------------------------------------
+
+            header = ser.read(2)
+
+            if len(header) != 2:
+                print("\nRX HEADER LENGTH ERROR")
+                continue
+
+            msg_id = header[0]
+            length = header[1]
+
+            if length > MAX_DATA_LENGTH:
                 print(
-                    "ACK : HEARTBEAT (0x01)"
+                    f"\nRX DATA LENGTH INVALID : {length}"
                 )
+                continue
 
-            elif ack_id == MSG_SET_TARGET:
 
+            # ------------------------------------------------
+            # DATA
+            # ------------------------------------------------
+
+            data = ser.read(length)
+
+            if len(data) != length:
                 print(
-                    "ACK : SET_TARGET (0x10)"
+                    f"\nDATA LENGTH ERROR : "
+                    f"expected={length}, "
+                    f"received={len(data)}"
                 )
+                continue
 
-            elif ack_id == MSG_SET_HOME:
 
+            # ------------------------------------------------
+            # CHECKSUM
+            # ------------------------------------------------
+
+            rx_checksum = ser.read(1)
+
+            if len(rx_checksum) != 1:
                 print(
-                    "ACK : SET_HOME (0x11)"
+                    "\nCHECKSUM BYTE ERROR"
                 )
+                continue
 
-            elif ack_id == MSG_MOVE_HOME:
 
+            # ------------------------------------------------
+            # END
+            # ------------------------------------------------
+
+            end = ser.read(1)
+
+            if end != bytes([END]):
                 print(
-                    "ACK : MOVE_HOME (0x12)"
+                    "\nEND BYTE ERROR"
                 )
-
-            elif ack_id == MSG_JOG:
-
-                print(
-                    "ACK : JOG (0x13)"
-                )
-
-            else:
-
-                print(
-                    f"ACK : "
-                    f"0x{ack_id:02X}"
-                )
+                continue
 
 
-        # ====================================================
-        # MOVE DONE
-        # ====================================================
+            # ------------------------------------------------
+            # CHECKSUM VERIFY
+            # ------------------------------------------------
 
-        elif msg_id == MSG_MOVE_DONE:
-
-            print(
-                "MOVE DONE"
+            calc_checksum = checksum(
+                msg_id,
+                data
             )
 
+            if calc_checksum != rx_checksum[0]:
+                print(
+                    f"\nCHECKSUM ERROR : "
+                    f"RX=0x{rx_checksum[0]:02X}, "
+                    f"CALC=0x{calc_checksum:02X}"
+                )
+                continue
 
-        # ====================================================
-        # ERROR
-        # ====================================================
 
-        elif msg_id == MSG_ERROR:
+            # =================================================
+            # ACK
+            # =================================================
 
-            if len(data) == 1:
+            if msg_id == MSG_ACK:
+
+                if len(data) != 1:
+                    print(
+                        "\nACK LENGTH ERROR"
+                    )
+                    continue
+
+                ack_id = data[0]
+
+                if ack_id == MSG_HEARTBEAT:
+
+                    if SHOW_HEARTBEAT_ACK:
+                        print(
+                            "\nACK : HEARTBEAT (0x01)"
+                        )
+
+                else:
+
+                    command_name = COMMAND_NAMES.get(
+                        ack_id,
+                        f"UNKNOWN(0x{ack_id:02X})"
+                    )
+
+                    print(
+                        f"\nACK : "
+                        f"{command_name} "
+                        f"(0x{ack_id:02X})"
+                    )
+
+
+            # =================================================
+            # COMMAND DONE
+            # =================================================
+
+            elif msg_id == MSG_COMMAND_DONE:
+
+                if len(data) != 1:
+                    print(
+                        f"\nCOMMAND_DONE LENGTH ERROR : "
+                        f"{len(data)}"
+                    )
+                    continue
+
+                completed_id = data[0]
+
+                command_name = COMMAND_NAMES.get(
+                    completed_id,
+                    f"UNKNOWN(0x{completed_id:02X})"
+                )
+
+                print(
+                    f"\nCOMMAND DONE : "
+                    f"{command_name} "
+                    f"(0x{completed_id:02X})"
+                )
+
+
+            # =================================================
+            # ERROR
+            # =================================================
+
+            elif msg_id == MSG_ERROR:
+
+                if len(data) != 1:
+                    print(
+                        f"\nMOTOR ERROR : "
+                        f"INVALID DATA LENGTH "
+                        f"({len(data)})"
+                    )
+                    continue
 
                 error_code = data[0]
 
-                error_names = {
-
-                    0x00: "NONE",
-
-                    0x01: "INVALID_TARGET",
-                    0x02: "INVALID_AXIS",
-                    0x03: "ANGLE_LIMIT",
-
-                    0x04: "STEPPER_BUSY",
-                    0x05: "STEPPER",
-                    0x06: "SERVO2",
-                    0x07: "SERVO3",
-
-                    0x08: "HOME_NOT_SET",
-
-                    0x09: "INIT",
-                    0x0A: "QUEUE",
-                    0x0B: "INVALID_COMMAND",
-
-                    0x0C: "COMM_LOST",
-                }
+                error_name = ERROR_NAMES.get(
+                    error_code,
+                    f"UNKNOWN(0x{error_code:02X})"
+                )
 
                 print(
-                    f"MOTOR ERROR : "
-                    f"{error_names.get(error_code, f'UNKNOWN(0x{error_code:02X})')}"
+                    f"\nMOTOR ERROR : "
+                    f"{error_name} "
+                    f"(0x{error_code:02X})"
                 )
+
+
+            # =================================================
+            # AS5600 ACTUAL THETA1
+            # =================================================
+
+            elif msg_id == MSG_CURRENT_ANGLE:
+
+                print(
+                    f"\n0x84 RX RAW : "
+                    f"len={len(data)}, "
+                    f"data={data.hex(' ').upper()}"
+                )
+
+                if len(data) == 2:
+
+                    angle_x10 = struct.unpack(
+                        ">h",
+                        data
+                    )[0]
+
+                    angle_deg = (
+                        angle_x10 / 10.0
+                    )
+
+                    print(
+                        f"ENCODER ANGLE : "
+                        f"{angle_deg:+.1f} deg"
+                    )
+
+                else:
+
+                    print(
+                        f"0x84 LENGTH ERROR : "
+                        f"{len(data)}"
+                    )
+
+
+            # =================================================
+            # CURRENT COMMAND ANGLES
+            # =================================================
+
+            elif msg_id == MSG_CURRENT_COMMAND_ANGLES:
+
+                print(
+                    f"\n0x85 RX RAW : "
+                    f"len={len(data)}, "
+                    f"data={data.hex(' ').upper()}"
+                )
+
+                if len(data) == 6:
+
+                    (
+                        theta1_x10,
+                        theta2_x10,
+                        theta3_x10
+                    ) = struct.unpack(
+                        ">hhh",
+                        data
+                    )
+
+                    theta1 = (
+                        theta1_x10 / 10.0
+                    )
+
+                    theta2 = (
+                        theta2_x10 / 10.0
+                    )
+
+                    theta3 = (
+                        theta3_x10 / 10.0
+                    )
+
+                    print(
+                        f"CURRENT COMMAND ANGLES : "
+                        f"theta1={theta1:+.1f} deg, "
+                        f"theta2={theta2:+.1f} deg, "
+                        f"theta3={theta3:+.1f} deg"
+                    )
+
+                else:
+
+                    print(
+                        f"0x85 LENGTH ERROR : "
+                        f"{len(data)}"
+                    )
+
+
+            # =================================================
+            # STATUS
+            # =================================================
+
+            elif msg_id == MSG_STATUS:
+
+                print(
+                    "\nSTATUS :",
+                    data.hex(" ").upper()
+                )
+
+
+            # =================================================
+            # READY
+            # =================================================
+
+            elif msg_id == MSG_READY:
+
+                if len(data) != 0:
+                    print(
+                        f"\nREADY LENGTH ERROR : "
+                        f"{len(data)}"
+                    )
+                    continue
+
+                print(
+                    "\nSTM32 READY"
+                )
+
+
+            # =================================================
+            # UNKNOWN
+            # =================================================
 
             else:
 
                 print(
-                    f"MOTOR ERROR : "
-                    f"INVALID DATA LENGTH "
-                    f"({len(data)})"
+                    f"\nUNKNOWN RX : "
+                    f"MSG=0x{msg_id:02X}, "
+                    f"LEN={length}, "
+                    f"DATA={data.hex(' ').upper()}"
                 )
 
 
-        # ====================================================
-        # AS5600 ACTUAL THETA1
-        # ====================================================
+    except serial.SerialException as exc:
 
-        elif msg_id == MSG_CURRENT_ANGLE:
-
-            print(
-                f"0x84 RX RAW : "
-                f"len={len(data)}, "
-                f"data={data.hex(' ').upper()}"
-            )
-
-            if len(data) == 2:
-
-                angle_x10 = struct.unpack(
-                    ">h",
-                    data
-                )[0]
-
-                angle_deg = (
-                    angle_x10 / 10.0
-                )
-
-                print(
-                    f"ENCODER ANGLE : "
-                    f"{angle_deg:+.1f} deg"
-                )
-
-            else:
-
-                print(
-                    f"0x84 LENGTH ERROR : "
-                    f"{len(data)}"
-                )
-
-
-        # ====================================================
-        # CURRENT COMMAND / ESTIMATED ANGLES
-        # ====================================================
-
-        elif msg_id == MSG_CURRENT_COMMAND_ANGLES:
-
-            print(
-                f"0x85 RX RAW : "
-                f"len={len(data)}, "
-                f"data={data.hex(' ').upper()}"
-            )
-
-            if len(data) == 6:
-
-                (
-                    theta1_x10,
-                    theta2_x10,
-                    theta3_x10
-                ) = struct.unpack(
-                    ">hhh",
-                    data
-                )
-
-                theta1 = (
-                    theta1_x10 / 10.0
-                )
-
-                theta2 = (
-                    theta2_x10 / 10.0
-                )
-
-                theta3 = (
-                    theta3_x10 / 10.0
-                )
-
-                print(
-                    f"CURRENT COMMAND ANGLES : "
-                    f"theta1={theta1:+.1f} deg, "
-                    f"theta2={theta2:+.1f} deg, "
-                    f"theta3={theta3:+.1f} deg"
-                )
-
-            else:
-
-                print(
-                    f"0x85 LENGTH ERROR : "
-                    f"{len(data)}"
-                )
-
-
-        # ====================================================
-        # STATUS
-        # ====================================================
-
-        elif msg_id == MSG_STATUS:
-
-            print(
-                "STATUS :",
-                data.hex(" ").upper()
-            )
-
-
-        # ====================================================
-        # READY
-        # ====================================================
-
-        elif msg_id == MSG_READY:
-
-            print(
-                "STM32 READY"
-            )
-
-
-        # ====================================================
-        # UNKNOWN
-        # ====================================================
-
-        else:
-
-            print(
-                f"UNKNOWN RX : "
-                f"MSG=0x{msg_id:02X}, "
-                f"LEN={length}, "
-                f"DATA={data.hex(' ').upper()}"
-            )
+        print(
+            f"\nRX Serial Error : {exc}"
+        )
 
 
 # ============================================================
@@ -676,7 +723,7 @@ def print_menu():
     print()
 
     print(
-        "q  : quit"
+        "q  : QUIT"
     )
 
     print(
@@ -716,26 +763,34 @@ def main():
             # RX THREAD
             # =================================================
 
-            threading.Thread(
+            rx_thread = threading.Thread(
                 target=receive_thread,
                 args=(ser,),
                 daemon=True
-            ).start()
+            )
+
+            rx_thread.start()
 
 
             # =================================================
             # HEARTBEAT THREAD
             # =================================================
 
-            threading.Thread(
+            hb_thread = threading.Thread(
                 target=heartbeat_thread,
                 args=(ser,),
                 daemon=True
-            ).start()
+            )
+
+            hb_thread.start()
 
 
             print_menu()
 
+
+            # =================================================
+            # COMMAND LOOP
+            # =================================================
 
             while True:
 
@@ -744,29 +799,40 @@ def main():
                 ).strip().lower()
 
 
-                # =============================================
+                # ---------------------------------------------
                 # SET_TARGET
-                # =============================================
+                # ---------------------------------------------
 
                 if command == "t":
 
-                    theta1 = float(
-                        input(
-                            "theta1 target : "
-                        )
-                    )
+                    try:
 
-                    theta2 = float(
-                        input(
-                            "theta2 target : "
+                        theta1 = float(
+                            input(
+                                "theta1 target : "
+                            )
                         )
-                    )
 
-                    theta3 = float(
-                        input(
-                            "theta3 target : "
+                        theta2 = float(
+                            input(
+                                "theta2 target : "
+                            )
                         )
-                    )
+
+                        theta3 = float(
+                            input(
+                                "theta3 target : "
+                            )
+                        )
+
+                    except ValueError:
+
+                        print(
+                            "숫자를 입력해야 합니다."
+                        )
+
+                        continue
+
 
                     send_set_target(
                         ser,
@@ -776,9 +842,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # THETA1 JOG
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "1+":
 
@@ -787,6 +853,7 @@ def main():
                         AXIS_THETA1,
                         +1.0
                     )
+
 
                 elif command == "1-":
 
@@ -797,9 +864,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # THETA2 JOG
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "2+":
 
@@ -808,6 +875,7 @@ def main():
                         AXIS_THETA2,
                         +1.0
                     )
+
 
                 elif command == "2-":
 
@@ -818,9 +886,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # THETA3 JOG
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "3+":
 
@@ -829,6 +897,7 @@ def main():
                         AXIS_THETA3,
                         +1.0
                     )
+
 
                 elif command == "3-":
 
@@ -839,9 +908,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # SET_HOME
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "h":
 
@@ -850,9 +919,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # MOVE_HOME
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "m":
 
@@ -861,9 +930,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # HEARTBEAT OFF
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "x":
 
@@ -879,9 +948,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # HEARTBEAT ON
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "c":
 
@@ -893,9 +962,9 @@ def main():
                     )
 
 
-                # =============================================
+                # ---------------------------------------------
                 # QUIT
-                # =============================================
+                # ---------------------------------------------
 
                 elif command == "q":
 
@@ -906,9 +975,18 @@ def main():
                     break
 
 
-                # =============================================
+                # ---------------------------------------------
+                # MENU
+                # ---------------------------------------------
+
+                elif command == "help":
+
+                    print_menu()
+
+
+                # ---------------------------------------------
                 # UNKNOWN
-                # =============================================
+                # ---------------------------------------------
 
                 else:
 
@@ -923,13 +1001,6 @@ def main():
 
         print(
             f"Serial Error : {exc}"
-        )
-
-
-    except ValueError:
-
-        print(
-            "숫자를 입력해야 합니다."
         )
 
 
