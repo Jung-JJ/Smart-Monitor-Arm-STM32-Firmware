@@ -8,7 +8,7 @@
 #ifndef INC_MOTOR_TASK_H_
 #define INC_MOTOR_TASK_H_
 
-
+#include <stdint.h>
 
 typedef enum
 {
@@ -44,7 +44,7 @@ typedef enum
 
 typedef enum
 {
-    MOTOR_STATUS_MOVE_DONE = 0,
+	MOTOR_STATUS_COMMAND_DONE = 0,
     MOTOR_STATUS_ERROR,
 } MotorStatus_t;
 
@@ -52,6 +52,8 @@ typedef struct
 {
     MotorStatus_t status;
     MotorError_t error;
+
+    uint8_t command_type;
 } MotorStatusMessage_t;
 
 extern volatile MotorState_t motorState;

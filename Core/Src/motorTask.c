@@ -107,8 +107,22 @@ static void Motor_ReportError(MotorError_t error)
 
 	message.status = MOTOR_STATUS_ERROR;
 	message.error = error;
+	message.command_type = 0U;
 
     (void)osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U);
+}
+
+static void Motor_ReportCommandDone(uint8_t commandType)
+{
+    MotorStatusMessage_t message;
+
+    message.status = MOTOR_STATUS_COMMAND_DONE;
+    message.error = MOTOR_ERROR_NONE;
+    message.command_type = commandType;
+
+    if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
+        motorState = MOTOR_STATE_ERROR;
+    }
 }
 
 static uint8_t Motor_CheckTarget(const MotorCommand_t *command)
@@ -252,20 +266,13 @@ void StartMotorTask(void *argument)
 				commandedTheta1Deg = theta1Deg;
 				motorState = MOTOR_STATE_IDLE;
 
-				MotorStatusMessage_t message;
-				message.status = MOTOR_STATUS_MOVE_DONE;
-				message.error = MOTOR_ERROR_NONE;
-
-				if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
-					motorState = MOTOR_STATE_ERROR;
-				}
+				Motor_ReportCommandDone((uint8_t)command.type);
 
 				break;
 			}
 
 			case MOTOR_COMMAND_SET_HOME:
 			{
-				MotorStatusMessage_t message;
 
 				homeTheta1Deg = commandedTheta1Deg;
 				homeTheta2Deg = commandedTheta2Deg;
@@ -275,12 +282,7 @@ void StartMotorTask(void *argument)
 
 				motorState =  MOTOR_STATE_IDLE;
 
-				message.status = MOTOR_STATUS_MOVE_DONE;
-				message.error = MOTOR_ERROR_NONE;
-
-				if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
-				    motorState = MOTOR_STATE_ERROR;
-				}
+				Motor_ReportCommandDone((uint8_t)command.type);
 
 				break;
 			}
@@ -288,7 +290,6 @@ void StartMotorTask(void *argument)
 			case MOTOR_COMMAND_MOVE_HOME:
 			{
 				float theta1MoveDeg;
-				MotorStatusMessage_t message;
 
 				if(homeValid == 0U){
 					Motor_ReportError(MOTOR_ERROR_HOME_NOT_SET);
@@ -339,13 +340,7 @@ void StartMotorTask(void *argument)
 
 				motorState = MOTOR_STATE_IDLE;
 
-				message.status = MOTOR_STATUS_MOVE_DONE;
-				message.error = MOTOR_ERROR_NONE;
-
-			    if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK)
-			    {
-			    	motorState = MOTOR_STATE_ERROR;
-			    }
+				Motor_ReportCommandDone((uint8_t)command.type);
 
 				break;
 			}
@@ -354,12 +349,12 @@ void StartMotorTask(void *argument)
 			{
 				float deltaDeg;
 				float targetDeg;
-				MotorStatusMessage_t message;
 
 				deltaDeg = (float)command.delta_x10 / 10.0f;
 
 				if (deltaDeg == 0.0f){
 				        motorState = MOTOR_STATE_IDLE;
+				        Motor_ReportCommandDone((uint8_t)command.type);
 				        break;
 				}
 
@@ -440,14 +435,9 @@ void StartMotorTask(void *argument)
 				}
 
 				if (motorState == MOTOR_STATE_IDLE){
-					message.status = MOTOR_STATUS_MOVE_DONE;
-					message.error = MOTOR_ERROR_NONE;
-
-					if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
-						motorState = MOTOR_STATE_ERROR;
-					}
-
+				    Motor_ReportCommandDone((uint8_t)command.type);
 				}
+
 				break;
 			}
 

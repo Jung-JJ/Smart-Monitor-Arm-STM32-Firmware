@@ -1,6 +1,7 @@
 ../Core/Src/motorTask.c:57:16:Motor_Init	8	static
 ../Core/Src/motorTask.c:84:16:Motor_IsAngleInRange	16	static
 ../Core/Src/motorTask.c:102:13:Motor_ReportError	24	static
-../Core/Src/motorTask.c:114:16:Motor_CheckTarget	16	static
-../Core/Src/motorTask.c:138:6:Motor_GetCommandedAngles	24	static
-../Core/Src/motorTask.c:157:6:StartMotorTask	72	static
+../Core/Src/motorTask.c:115:13:Motor_ReportCommandDone	24	static
+../Core/Src/motorTask.c:128:16:Motor_CheckTarget	16	static
+../Core/Src/motorTask.c:152:6:Motor_GetCommandedAngles	24	static
+../Core/Src/motorTask.c:171:6:StartMotorTask	56	static
