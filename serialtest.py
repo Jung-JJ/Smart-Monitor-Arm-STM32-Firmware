@@ -3,25 +3,33 @@ import struct
 import threading
 import time
 
+
+# ============================================================
+# SERIAL
+# ============================================================
+
 PORT = "COM9"
 BAUD = 115200
 
 START = 0xAA
 END = 0x55
 
-# =========================
+
+# ============================================================
 # Python -> STM32
-# =========================
+# ============================================================
 
 MSG_HEARTBEAT = 0x01
+
 MSG_SET_TARGET = 0x10
 MSG_SET_HOME = 0x11
 MSG_MOVE_HOME = 0x12
 MSG_JOG = 0x13
 
-# =========================
+
+# ============================================================
 # STM32 -> Python
-# =========================
+# ============================================================
 
 MSG_ACK = 0x80
 MSG_STATUS = 0x81
@@ -31,15 +39,23 @@ MSG_CURRENT_ANGLE = 0x84
 MSG_CURRENT_COMMAND_ANGLES = 0x85
 MSG_READY = 0x86
 
-# =========================
+
+# ============================================================
 # JOG AXIS
-# =========================
+# ============================================================
 
 AXIS_THETA1 = 1
 AXIS_THETA2 = 2
 AXIS_THETA3 = 3
 
+
+# ============================================================
+# GLOBAL
+# ============================================================
+
 alive_counter = 0
+
+heartbeat_enabled = True
 
 write_lock = threading.Lock()
 
@@ -49,6 +65,7 @@ write_lock = threading.Lock()
 # ============================================================
 
 def checksum(msg_id, data):
+
     cs = msg_id ^ len(data)
 
     for byte in data:
@@ -62,6 +79,7 @@ def checksum(msg_id, data):
 # ============================================================
 
 def build_frame(msg_id, data):
+
     frame = bytearray()
 
     frame.append(START)
@@ -71,7 +89,10 @@ def build_frame(msg_id, data):
     frame.extend(data)
 
     frame.append(
-        checksum(msg_id, data)
+        checksum(
+            msg_id,
+            data
+        )
     )
 
     frame.append(END)
@@ -84,8 +105,11 @@ def build_frame(msg_id, data):
 # ============================================================
 
 def safe_write(ser, frame):
+
     with write_lock:
+
         ser.write(frame)
+
         ser.flush()
 
 
@@ -94,43 +118,36 @@ def safe_write(ser, frame):
 # ============================================================
 
 def heartbeat_thread(ser):
-    global alive_counter
 
-    last_time = time.monotonic()
+    global alive_counter
+    global heartbeat_enabled
 
     while ser.is_open:
 
-        # Heartbeat 실제 실행 간격 측정
-        now = time.monotonic()
-        interval = now - last_time
-        last_time = now
+        if heartbeat_enabled:
 
-        print(
-            f"\n[HB TX] interval={interval:.3f}s"
-        )
+            alive_counter = (
+                alive_counter + 1
+            ) & 0xFF
 
-        # Alive counter 증가
-        alive_counter = (
-            alive_counter + 1
-        ) & 0xFF
-
-        data = bytes(
-            [alive_counter]
-        )
-
-        frame = build_frame(
-            MSG_HEARTBEAT,
-            data
-        )
-
-        try:
-            safe_write(
-                ser,
-                frame
+            data = bytes(
+                [alive_counter]
             )
 
-        except serial.SerialException:
-            break
+            frame = build_frame(
+                MSG_HEARTBEAT,
+                data
+            )
+
+            try:
+
+                safe_write(
+                    ser,
+                    frame
+                )
+
+            except serial.SerialException:
+                break
 
         time.sleep(1.0)
 
@@ -176,6 +193,7 @@ def send_set_target(
     )
 
     print()
+
     print(
         f"SET_TARGET TX : "
         f"theta1={theta1_deg:+.1f} deg, "
@@ -225,6 +243,7 @@ def send_jog(
     )
 
     print()
+
     print(
         f"JOG TX : "
         f"axis={axis}, "
@@ -315,25 +334,31 @@ def receive_thread(ser):
         data = ser.read(length)
 
         if len(data) != length:
+
             print(
                 "DATA LENGTH ERROR"
             )
+
             continue
 
         rx_checksum = ser.read(1)
 
         if len(rx_checksum) != 1:
+
             print(
                 "CHECKSUM BYTE ERROR"
             )
+
             continue
 
         end = ser.read(1)
 
         if end != bytes([END]):
+
             print(
                 "END BYTE ERROR"
             )
+
             continue
 
         calc_checksum = checksum(
@@ -351,16 +376,19 @@ def receive_thread(ser):
 
             continue
 
-        # =============================================
+
+        # ====================================================
         # ACK
-        # =============================================
+        # ====================================================
 
         if msg_id == MSG_ACK:
 
             if len(data) != 1:
+
                 print(
                     "ACK LENGTH ERROR"
                 )
+
                 continue
 
             ack_id = data[0]
@@ -402,9 +430,10 @@ def receive_thread(ser):
                     f"0x{ack_id:02X}"
                 )
 
-        # =============================================
+
+        # ====================================================
         # MOVE DONE
-        # =============================================
+        # ====================================================
 
         elif msg_id == MSG_MOVE_DONE:
 
@@ -412,40 +441,56 @@ def receive_thread(ser):
                 "MOVE DONE"
             )
 
-        # =============================================
+
+        # ====================================================
         # ERROR
-        # =============================================
+        # ====================================================
 
         elif msg_id == MSG_ERROR:
+
             if len(data) == 1:
+
                 error_code = data[0]
 
                 error_names = {
+
                     0x00: "NONE",
+
                     0x01: "INVALID_TARGET",
                     0x02: "INVALID_AXIS",
                     0x03: "ANGLE_LIMIT",
+
                     0x04: "STEPPER_BUSY",
                     0x05: "STEPPER",
                     0x06: "SERVO2",
                     0x07: "SERVO3",
+
                     0x08: "HOME_NOT_SET",
+
                     0x09: "INIT",
                     0x0A: "QUEUE",
                     0x0B: "INVALID_COMMAND",
+
+                    0x0C: "COMM_LOST",
                 }
 
                 print(
                     f"MOTOR ERROR : "
                     f"{error_names.get(error_code, f'UNKNOWN(0x{error_code:02X})')}"
                 )
+
             else:
+
                 print(
-                    f"MOTOR ERROR : INVALID DATA LENGTH ({len(data)})"
+                    f"MOTOR ERROR : "
+                    f"INVALID DATA LENGTH "
+                    f"({len(data)})"
                 )
-        # =============================================
+
+
+        # ====================================================
         # AS5600 ACTUAL THETA1
-        # =============================================
+        # ====================================================
 
         elif msg_id == MSG_CURRENT_ANGLE:
 
@@ -478,9 +523,10 @@ def receive_thread(ser):
                     f"{len(data)}"
                 )
 
-        # =============================================
+
+        # ====================================================
         # CURRENT COMMAND / ESTIMATED ANGLES
-        # =============================================
+        # ====================================================
 
         elif msg_id == MSG_CURRENT_COMMAND_ANGLES:
 
@@ -527,9 +573,10 @@ def receive_thread(ser):
                     f"{len(data)}"
                 )
 
-        # =============================================
+
+        # ====================================================
         # STATUS
-        # =============================================
+        # ====================================================
 
         elif msg_id == MSG_STATUS:
 
@@ -538,11 +585,21 @@ def receive_thread(ser):
                 data.hex(" ").upper()
             )
 
-        # =============================================
-        # UNKNOWN
-        # =============================================
+
+        # ====================================================
+        # READY
+        # ====================================================
+
         elif msg_id == MSG_READY:
-            print("STM32 READY")
+
+            print(
+                "STM32 READY"
+            )
+
+
+        # ====================================================
+        # UNKNOWN
+        # ====================================================
 
         else:
 
@@ -561,6 +618,7 @@ def receive_thread(ser):
 def print_menu():
 
     print()
+
     print(
         "========== MOTOR TEST =========="
     )
@@ -608,6 +666,16 @@ def print_menu():
     print()
 
     print(
+        "x  : HEARTBEAT OFF"
+    )
+
+    print(
+        "c  : HEARTBEAT ON"
+    )
+
+    print()
+
+    print(
         "q  : quit"
     )
 
@@ -621,6 +689,8 @@ def print_menu():
 # ============================================================
 
 def main():
+
+    global heartbeat_enabled
 
     try:
 
@@ -641,31 +711,42 @@ def main():
             ser.reset_input_buffer()
             ser.reset_output_buffer()
 
-            # RX thread
+
+            # =================================================
+            # RX THREAD
+            # =================================================
+
             threading.Thread(
                 target=receive_thread,
                 args=(ser,),
                 daemon=True
             ).start()
 
-            # Heartbeat thread
+
+            # =================================================
+            # HEARTBEAT THREAD
+            # =================================================
+
             threading.Thread(
                 target=heartbeat_thread,
                 args=(ser,),
                 daemon=True
             ).start()
 
+
             print_menu()
+
 
             while True:
 
                 command = input(
                     "\n> "
-                ).strip()
+                ).strip().lower()
 
-                # =====================================
+
+                # =============================================
                 # SET_TARGET
-                # =====================================
+                # =============================================
 
                 if command == "t":
 
@@ -694,9 +775,10 @@ def main():
                         theta3
                     )
 
-                # =====================================
+
+                # =============================================
                 # THETA1 JOG
-                # =====================================
+                # =============================================
 
                 elif command == "1+":
 
@@ -714,9 +796,10 @@ def main():
                         -1.0
                     )
 
-                # =====================================
+
+                # =============================================
                 # THETA2 JOG
-                # =====================================
+                # =============================================
 
                 elif command == "2+":
 
@@ -734,9 +817,10 @@ def main():
                         -1.0
                     )
 
-                # =====================================
+
+                # =============================================
                 # THETA3 JOG
-                # =====================================
+                # =============================================
 
                 elif command == "3+":
 
@@ -754,9 +838,10 @@ def main():
                         -1.0
                     )
 
-                # =====================================
+
+                # =============================================
                 # SET_HOME
-                # =====================================
+                # =============================================
 
                 elif command == "h":
 
@@ -764,9 +849,10 @@ def main():
                         ser
                     )
 
-                # =====================================
+
+                # =============================================
                 # MOVE_HOME
-                # =====================================
+                # =============================================
 
                 elif command == "m":
 
@@ -774,9 +860,42 @@ def main():
                         ser
                     )
 
-                # =====================================
+
+                # =============================================
+                # HEARTBEAT OFF
+                # =============================================
+
+                elif command == "x":
+
+                    heartbeat_enabled = False
+
+                    print()
+                    print(
+                        "HEARTBEAT OFF"
+                    )
+
+                    print(
+                        "STM32 heartbeat timeout을 기다리세요."
+                    )
+
+
+                # =============================================
+                # HEARTBEAT ON
+                # =============================================
+
+                elif command == "c":
+
+                    heartbeat_enabled = True
+
+                    print()
+                    print(
+                        "HEARTBEAT ON"
+                    )
+
+
+                # =============================================
                 # QUIT
-                # =====================================
+                # =============================================
 
                 elif command == "q":
 
@@ -786,6 +905,11 @@ def main():
 
                     break
 
+
+                # =============================================
+                # UNKNOWN
+                # =============================================
+
                 else:
 
                     print(
@@ -794,11 +918,13 @@ def main():
 
                     print_menu()
 
+
     except serial.SerialException as exc:
 
         print(
             f"Serial Error : {exc}"
         )
+
 
     except ValueError:
 
@@ -806,12 +932,17 @@ def main():
             "숫자를 입력해야 합니다."
         )
 
+
     except KeyboardInterrupt:
 
         print(
             "\nStopped"
         )
 
+
+# ============================================================
+# PROGRAM START
+# ============================================================
 
 if __name__ == "__main__":
     main()

@@ -36,6 +36,34 @@ volatile uint8_t communicationLost = 1U;
 volatile int16_t debugCurrentAngleX10 = 0;
 
 
+static void Communication_SendError(MotorError_t error)
+{
+    uint8_t errorData[1];
+
+    errorData[0] = (uint8_t)error;
+
+    buildStatus =
+        Protocol_BuildFrame(
+            PROTOCOL_MSG_ERROR,
+            errorData,
+            sizeof(errorData),
+            txFrame,
+            sizeof(txFrame),
+            &txFrameLength
+        );
+
+    if (buildStatus == PROTOCOL_OK)
+    {
+        (void)HAL_UART_Transmit(
+            &huart2,
+            txFrame,
+            txFrameLength,
+            100U
+        );
+    }
+}
+
+
 static void Communication_SendReady(void)
 {
     buildStatus =
@@ -265,13 +293,24 @@ void StartCommunicationTask(void *argument)
 						{
 							if (rxMessage.data_length == 1U)
 							{
+								lastAliveCounter = rxMessage.data[0];
 
-								Communication_SendAck(rxMessage.msg_id);
+								heartbeatReceiveCount++;
+
+								lastHeartbeatTick =
+									osKernelGetTickCount();
+
+								communicationLost = 0U;
+
+								Communication_SendAck(
+									rxMessage.msg_id
+								);
 
 								if ((motorState == MOTOR_STATE_IDLE) &&
 									(readySent == 0U))
 								{
 									Communication_SendReady();
+
 									readySent = 1U;
 								}
 							}
@@ -281,6 +320,14 @@ void StartCommunicationTask(void *argument)
 
                         case PROTOCOL_MSG_SET_TARGET:
                         	{
+                        		if (communicationLost != 0U)
+                        		    {
+                        		        Communication_SendError(
+                        		            MOTOR_ERROR_COMM_LOST
+                        		        );
+
+                        		        break;
+                        		    }
 
 								if (rxMessage.data_length == 6U)
 								{
@@ -295,13 +342,7 @@ void StartCommunicationTask(void *argument)
 									motorCommand.theta3_x10 =
 										Protocol_ReadInt16BigEndian(&rxMessage.data[4]);
 
-									queueStatus =
-										osMessageQueuePut(
-											motorCommandQueueHandle,
-											&motorCommand,
-											0U,
-											0U
-										);
+									queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
 
 									if (queueStatus == osOK)
 									{
