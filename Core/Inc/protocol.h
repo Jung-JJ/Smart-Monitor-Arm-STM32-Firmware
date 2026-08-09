@@ -42,12 +42,13 @@ typedef enum
 /* STM32 -> Jetson message IDs */
 typedef enum
 {
-    PROTOCOL_MSG_ACK       = 0x80U,
-    PROTOCOL_MSG_STATUS    = 0x81U,
-    PROTOCOL_MSG_MOVE_DONE = 0x82U,
-    PROTOCOL_MSG_ERROR     = 0x83U,
-	PROTOCOL_MSG_CURRENT_ANGLE  = 0x84U,
-	PROTOCOL_MSG_CURRENT_COMMAND_ANGLES = 0x85U
+    PROTOCOL_MSG_ACK       				= 0x80U,
+    PROTOCOL_MSG_STATUS    				= 0x81U,
+    PROTOCOL_MSG_MOVE_DONE 				= 0x82U,
+    PROTOCOL_MSG_ERROR     				= 0x83U,
+	PROTOCOL_MSG_CURRENT_ANGLE  		= 0x84U,
+	PROTOCOL_MSG_CURRENT_COMMAND_ANGLES = 0x85U,
+	PROTOCOL_MSG_READY	   				= 0x86U
 } ProtocolTxMessageId_t;
 
 /* Protocol function return values */
@@ -110,10 +111,6 @@ ProtocolStatus_t Protocol_BuildFrame(uint8_t msg_id,
                                      uint16_t frame_capacity,
                                      uint16_t *frame_length);
 /*decode FRAME*/
-ProtocolStatus_t Protocol_DecodeFrame(const uint8_t *frame,
-                                      uint16_t frame_length,
-                                      ProtocolMessage_t *message);
-
 ProtocolStatus_t Protocol_RxDecodeMessage(const ProtocolRxParser_t *parser,
 										  ProtocolMessage_t *message);
 #endif /* INC_PROTOCOL_H_ */

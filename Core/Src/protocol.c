@@ -82,77 +82,6 @@ ProtocolStatus_t Protocol_BuildFrame(uint8_t msg_id,
     return PROTOCOL_OK;
 }
 
-ProtocolStatus_t Protocol_DecodeFrame(const uint8_t *frame,
-                                      uint16_t frame_length,
-                                      ProtocolMessage_t *message)
-{
-    uint8_t data_length;
-    uint8_t received_checksum;
-    uint8_t calculated_checksum;
-    uint16_t expected_frame_length;
-
-    if ((frame == NULL) || (message == NULL))
-    {
-        return PROTOCOL_ERROR_NULL_POINTER;
-    }
-
-
-    if (frame_length < PROTOCOL_MIN_FRAME_LENGTH)
-    {
-        return PROTOCOL_ERROR_FRAME_LENGTH;
-    }
-
-    if (frame[0] != PROTOCOL_START_BYTE)
-    {
-        return PROTOCOL_ERROR_START_BYTE;
-    }
-
-    data_length = frame[2];
-
-    if (data_length > PROTOCOL_MAX_DATA_LENGTH)
-    {
-        return PROTOCOL_ERROR_DATA_LENGTH;
-    }
-
-    expected_frame_length =
-        (uint16_t)data_length + PROTOCOL_OVERHEAD_LENGTH;
-
-    if (frame_length != expected_frame_length)
-    {
-        return PROTOCOL_ERROR_FRAME_LENGTH;
-    }
-
-    if (frame[expected_frame_length - 1U] != PROTOCOL_END_BYTE)
-    {
-        return PROTOCOL_ERROR_END_BYTE;
-    }
-
-    received_checksum = frame[3U + data_length];
-
-    calculated_checksum =
-        Protocol_CalculateChecksum(
-            frame[1],
-            data_length,
-            (data_length > 0U) ? &frame[3] : NULL
-        );
-
-    if (received_checksum != calculated_checksum)
-    {
-        return PROTOCOL_ERROR_CHECKSUM;
-    }
-
-    message->msg_id = frame[1];
-    message->data_length = data_length;
-
-    if (data_length > 0U)
-    {
-        (void)memcpy(message->data,
-                     &frame[3],
-                     data_length);
-    }
-
-    return PROTOCOL_OK;
-}
 
 void Protocol_RxParserInit(ProtocolRxParser_t *parser)
 {
@@ -237,7 +166,6 @@ void Protocol_RxProcessByte(ProtocolRxParser_t *parser, uint8_t rx_byte)
         	else{
         		Protocol_RxParserReset(parser);
         	}
-        	parser->state = PROTOCOL_RX_WAIT_START;
         	break;
 
         default:
@@ -251,8 +179,7 @@ void Protocol_RxProcessByte(ProtocolRxParser_t *parser, uint8_t rx_byte)
 
 ProtocolStatus_t Protocol_RxDecodeMessage(const ProtocolRxParser_t *parser,
    										  ProtocolMessage_t *message){
-   	uint8_t frame[PROTOCOL_MAX_FRAME_LENGTH];
-   	uint8_t frame_length;
+	uint8_t calculated_checksum;
 
    	if((parser==NULL)||(message==NULL)){
    		return PROTOCOL_ERROR_NULL_POINTER;
@@ -262,20 +189,23 @@ ProtocolStatus_t Protocol_RxDecodeMessage(const ProtocolRxParser_t *parser,
    		return PROTOCOL_ERROR_FRAME_LENGTH;
    	}
 
-   	frame_length = (uint16_t)parser->data_length + PROTOCOL_OVERHEAD_LENGTH;
-
-   	frame[0] = PROTOCOL_START_BYTE;
-   	frame[1] = parser->msg_id;
-   	frame[2] = parser->data_length;
-
-   	if(parser->data_length > 0U){
-   		memcpy(&frame[3],parser->data,parser->data_index);
+   	if (parser->data_length > PROTOCOL_MAX_DATA_LENGTH){
+   		return PROTOCOL_ERROR_DATA_LENGTH;
    	}
 
-   	frame[3U+parser->data_length] = parser->checksum;
-   	frame[4U+parser->data_length] = PROTOCOL_END_BYTE;
+   	calculated_checksum = Protocol_CalculateChecksum(parser->msg_id, parser->data_length, (parser->data_length > 0U) ? parser->data : NULL);
 
-   	return Protocol_DecodeFrame(frame, frame_length, message);
+   	if (parser->checksum != calculated_checksum){
+   		return PROTOCOL_ERROR_CHECKSUM;
+	}
+
+   	message->msg_id = parser->msg_id;
+   	message->data_length = parser->data_length;
+
+   	if(parser->data_length > 0U){
+   		memcpy(message->data, parser->data, parser->data_length);
+   	}
+   	return PROTOCOL_OK;
 
    }
 

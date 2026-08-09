@@ -29,6 +29,7 @@ MSG_MOVE_DONE = 0x82
 MSG_ERROR = 0x83
 MSG_CURRENT_ANGLE = 0x84
 MSG_CURRENT_COMMAND_ANGLES = 0x85
+MSG_READY = 0x86
 
 # =========================
 # JOG AXIS
@@ -95,8 +96,20 @@ def safe_write(ser, frame):
 def heartbeat_thread(ser):
     global alive_counter
 
+    last_time = time.monotonic()
+
     while ser.is_open:
 
+        # Heartbeat 실제 실행 간격 측정
+        now = time.monotonic()
+        interval = now - last_time
+        last_time = now
+
+        print(
+            f"\n[HB TX] interval={interval:.3f}s"
+        )
+
+        # Alive counter 증가
         alive_counter = (
             alive_counter + 1
         ) & 0xFF
@@ -404,11 +417,32 @@ def receive_thread(ser):
         # =============================================
 
         elif msg_id == MSG_ERROR:
+            if len(data) == 1:
+                error_code = data[0]
 
-            print(
-                "MOTOR ERROR"
-            )
+                error_names = {
+                    0x00: "NONE",
+                    0x01: "INVALID_TARGET",
+                    0x02: "INVALID_AXIS",
+                    0x03: "ANGLE_LIMIT",
+                    0x04: "STEPPER_BUSY",
+                    0x05: "STEPPER",
+                    0x06: "SERVO2",
+                    0x07: "SERVO3",
+                    0x08: "HOME_NOT_SET",
+                    0x09: "INIT",
+                    0x0A: "QUEUE",
+                    0x0B: "INVALID_COMMAND",
+                }
 
+                print(
+                    f"MOTOR ERROR : "
+                    f"{error_names.get(error_code, f'UNKNOWN(0x{error_code:02X})')}"
+                )
+            else:
+                print(
+                    f"MOTOR ERROR : INVALID DATA LENGTH ({len(data)})"
+                )
         # =============================================
         # AS5600 ACTUAL THETA1
         # =============================================
@@ -507,6 +541,8 @@ def receive_thread(ser):
         # =============================================
         # UNKNOWN
         # =============================================
+        elif msg_id == MSG_READY:
+            print("STM32 READY")
 
         else:
 

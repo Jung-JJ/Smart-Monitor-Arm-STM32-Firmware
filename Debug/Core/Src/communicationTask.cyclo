@@ -1,7 +1,8 @@
-../Core/Src/communicationTask.c:44:16:Protocol_ReadInt16BigEndian	1
-../Core/Src/communicationTask.c:55:13:Communication_SendAck	2
-../Core/Src/communicationTask.c:82:13:Communication_WriteInt16BigEndian	2
-../Core/Src/communicationTask.c:99:16:Communication_DegreeToX10	2
-../Core/Src/communicationTask.c:117:16:Communication_SendCurrentAngle	4
-../Core/Src/communicationTask.c:165:16:Communication_SendCurrentCommandAngles	3
-../Core/Src/communicationTask.c:216:6:StartCommunicationTask	27
+../Core/Src/communicationTask.c:48:13:Communication_SendReady	2
+../Core/Src/communicationTask.c:71:16:Protocol_ReadInt16BigEndian	1
+../Core/Src/communicationTask.c:82:13:Communication_SendAck	2
+../Core/Src/communicationTask.c:109:13:Communication_WriteInt16BigEndian	2
+../Core/Src/communicationTask.c:124:16:Communication_DegreeToX10	2
+../Core/Src/communicationTask.c:142:16:Communication_SendCurrentAngle	4
+../Core/Src/communicationTask.c:190:16:Communication_SendCurrentCommandAngles	3
+../Core/Src/communicationTask.c:239:6:StartCommunicationTask	30

@@ -135,7 +135,7 @@ void MX_FREERTOS_Init(void) {
 		Error_Handler();
 	}
 
-	motorStatusQueueHandle = osMessageQueueNew(4U, sizeof(MotorStatus_t), &motorStatusQueue_attributes);
+	motorStatusQueueHandle = osMessageQueueNew(4U, sizeof(MotorStatusMessage_t), &motorStatusQueue_attributes);
 	if(motorStatusQueueHandle == NULL){
 		Error_Handler();
 	}

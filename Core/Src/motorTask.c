@@ -25,6 +25,9 @@ extern osMessageQueueId_t motorStatusQueueHandle;
 #define THETA3_MIN_X10   (-1350)
 #define THETA3_MAX_X10   1350
 
+#define MOTOR_INIT_THETA1_DEG    10.0f
+#define MOTOR_INIT_THETA2_DEG    10.0f
+#define MOTOR_INIT_THETA3_DEG    10.0f
 
 static float commandedTheta1Deg = 0.0f; //엔코더 달면 제거
 static float commandedTheta2Deg = 0.0f;
@@ -43,11 +46,70 @@ volatile int16_t debugTheta3 = 0;
 
 volatile float debugStepperMoveAngleDeg = 0.0f;
 
+volatile MotorError_t motorError = MOTOR_ERROR_NONE;
+
 volatile MotorState_t motorState = MOTOR_STATE_IDLE;
 
 volatile StepperStatus_t debugStepperStatus = STEPPER_OK;
 volatile ServoStatus_t debugServo2Status = SERVO_OK;
 volatile ServoStatus_t debugServo3Status = SERVO_OK;
+
+static uint8_t Motor_Init(void)
+{
+    Stepper_Init();
+
+    if (Servo_Init() != SERVO_OK)
+    {
+        return 0U;
+    }
+
+    if (Servo_SetAngle(SERVO_CHANNEL_THETA2, MOTOR_INIT_THETA2_DEG) != SERVO_OK)
+    {
+        return 0U;
+    }
+
+    if (Servo_SetAngle(SERVO_CHANNEL_THETA3, MOTOR_INIT_THETA3_DEG) != SERVO_OK)
+    {
+        return 0U;
+    }
+
+    //주의할점 지금 엔코더가 없으니 시작 각도는 안 움직이게 할꺼임.
+    commandedTheta1Deg = MOTOR_INIT_THETA1_DEG;
+    commandedTheta2Deg = MOTOR_INIT_THETA2_DEG;
+    commandedTheta3Deg = MOTOR_INIT_THETA3_DEG;
+
+    return 1U;
+}
+
+static uint8_t Motor_IsAngleInRange(MotorAxis_t axis, float angleDeg)
+{
+    switch (axis)
+    {
+        case MOTOR_AXIS_THETA1:
+            return (angleDeg >= ((float)THETA1_MIN_X10 / 10.0f)) && (angleDeg <= ((float)THETA1_MAX_X10 / 10.0f));
+
+        case MOTOR_AXIS_THETA2:
+            return (angleDeg >= ((float)THETA2_MIN_X10 / 10.0f)) && (angleDeg <= ((float)THETA2_MAX_X10 / 10.0f));
+
+        case MOTOR_AXIS_THETA3:
+            return (angleDeg >= ((float)THETA3_MIN_X10 / 10.0f)) && (angleDeg <= ((float)THETA3_MAX_X10 / 10.0f));
+
+        default:
+            return 0U;
+    }
+}
+
+static void Motor_ReportError(MotorError_t error)
+{
+	MotorStatusMessage_t message;
+
+	motorState = MOTOR_STATE_ERROR;
+
+	message.status = MOTOR_STATUS_ERROR;
+	message.error = error;
+
+    (void)osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U);
+}
 
 static uint8_t Motor_CheckTarget(const MotorCommand_t *command)
 {
@@ -99,17 +161,18 @@ void StartMotorTask(void *argument)
     float theta2Deg;
     float theta3Deg;
     float theta1MoveDeg;
-
     (void)argument;
-    Stepper_Init();
 
-    if (Servo_Init() != SERVO_OK)
+    motorState = MOTOR_STATE_INIT;
+
+    if (Motor_Init() == 0U)
     {
-        motorState = MOTOR_STATE_ERROR;
+    	Motor_ReportError(MOTOR_ERROR_INIT);
     }
     else
     {
-        motorState = MOTOR_STATE_IDLE;
+    	motorError = MOTOR_ERROR_NONE;
+    	motorState = MOTOR_STATE_IDLE;
     }
 
     for (;;)
@@ -119,7 +182,7 @@ void StartMotorTask(void *argument)
                               NULL,
                               osWaitForever) != osOK)
         {
-           motorState = MOTOR_STATE_ERROR;
+           Motor_ReportError(MOTOR_ERROR_QUEUE);
            continue;
         }
 
@@ -127,13 +190,13 @@ void StartMotorTask(void *argument)
 			case MOTOR_COMMAND_SET_TARGET:
 			{
 				if(Motor_CheckTarget(&command) == 0U){
-					motorState = MOTOR_STATE_ERROR;
+					Motor_ReportError(MOTOR_ERROR_INVALID_TARGET);
 					break;
 				}
 
 				if (Stepper_IsBusy() != 0U){
 				    debugStepperStatus = STEPPER_ERROR_BUSY;
-				    motorState = MOTOR_STATE_ERROR;
+				    Motor_ReportError(MOTOR_ERROR_STEPPER_BUSY);
 					break;
 				}
 
@@ -154,7 +217,7 @@ void StartMotorTask(void *argument)
 					debugStepperStatus = Stepper_MoveRelative(theta1MoveDeg);
 
 					if(debugStepperStatus != STEPPER_OK){
-						motorState = MOTOR_STATE_ERROR;
+						Motor_ReportError(MOTOR_ERROR_STEPPER);
 						break;
 					}
 
@@ -168,7 +231,7 @@ void StartMotorTask(void *argument)
 				debugServo2Status = Servo_SetAngle(SERVO_CHANNEL_THETA2, theta2Deg);
 
 				if(debugServo2Status != SERVO_OK){
-					motorState = MOTOR_STATE_ERROR;
+					Motor_ReportError(MOTOR_ERROR_SERVO2);
 					break;
 				}
 				commandedTheta2Deg = theta2Deg;
@@ -176,7 +239,7 @@ void StartMotorTask(void *argument)
 				debugServo3Status = Servo_SetAngle(SERVO_CHANNEL_THETA3,theta3Deg);
 
 				if(debugServo3Status != SERVO_OK){
-					motorState = MOTOR_STATE_ERROR;
+					Motor_ReportError(MOTOR_ERROR_SERVO3);
 					break;
 				}
 
@@ -187,13 +250,14 @@ void StartMotorTask(void *argument)
 				}
 
 				commandedTheta1Deg = theta1Deg;
-
 				motorState = MOTOR_STATE_IDLE;
-				MotorStatus_t status = MOTOR_STATUS_MOVE_DONE;
 
+				MotorStatusMessage_t message;
+				message.status = MOTOR_STATUS_MOVE_DONE;
+				message.error = MOTOR_ERROR_NONE;
 
-				if (osMessageQueuePut(motorStatusQueueHandle, &status, 0U, 0U) != osOK){
-				    motorState = MOTOR_STATE_ERROR;
+				if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
+					motorState = MOTOR_STATE_ERROR;
 				}
 
 				break;
@@ -201,7 +265,7 @@ void StartMotorTask(void *argument)
 
 			case MOTOR_COMMAND_SET_HOME:
 			{
-				MotorStatus_t status;
+				MotorStatusMessage_t message;
 
 				homeTheta1Deg = commandedTheta1Deg;
 				homeTheta2Deg = commandedTheta2Deg;
@@ -210,8 +274,13 @@ void StartMotorTask(void *argument)
 				homeValid = 1U;
 
 				motorState =  MOTOR_STATE_IDLE;
-				status = MOTOR_STATUS_MOVE_DONE;
-				(void)osMessageQueuePut(motorStatusQueueHandle, &status, 0U, 0U);
+
+				message.status = MOTOR_STATUS_MOVE_DONE;
+				message.error = MOTOR_ERROR_NONE;
+
+				if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
+				    motorState = MOTOR_STATE_ERROR;
+				}
 
 				break;
 			}
@@ -219,15 +288,15 @@ void StartMotorTask(void *argument)
 			case MOTOR_COMMAND_MOVE_HOME:
 			{
 				float theta1MoveDeg;
-			    MotorStatus_t status;
+				MotorStatusMessage_t message;
 
 				if(homeValid == 0U){
-					motorState = MOTOR_STATE_ERROR;
+					Motor_ReportError(MOTOR_ERROR_HOME_NOT_SET);
 					break;
 				}
 				if(Stepper_IsBusy() != 0U){
 					debugStepperStatus = STEPPER_ERROR_BUSY;
-			        motorState = MOTOR_STATE_ERROR;
+					Motor_ReportError(MOTOR_ERROR_STEPPER_BUSY);
 			        break;
 				}
 
@@ -235,12 +304,11 @@ void StartMotorTask(void *argument)
 
 				if (theta1MoveDeg != 0.0f)
 				{
-					debugStepperStatus =
-						Stepper_MoveRelative(theta1MoveDeg);
+					debugStepperStatus = Stepper_MoveRelative(theta1MoveDeg);
 
 					if (debugStepperStatus != STEPPER_OK)
 					{
-						motorState = MOTOR_STATE_ERROR;
+						Motor_ReportError(MOTOR_ERROR_STEPPER);
 						break;
 					}
 
@@ -250,19 +318,19 @@ void StartMotorTask(void *argument)
 				debugServo2Status = Servo_SetAngle(SERVO_CHANNEL_THETA2, homeTheta2Deg);
 
 				 if (debugServo2Status != SERVO_OK){
-					 motorState = MOTOR_STATE_ERROR;
+					 Motor_ReportError(MOTOR_ERROR_SERVO2);
 				     break;
 				 }
 
 				debugServo3Status = Servo_SetAngle(SERVO_CHANNEL_THETA3, homeTheta3Deg);
 
 				if(debugServo3Status != SERVO_OK){
-					 motorState = MOTOR_STATE_ERROR;
+					 Motor_ReportError(MOTOR_ERROR_SERVO3);
 				     break;
 				}
 
 				while(Stepper_IsBusy() != 0U){
-					osDelay(1);
+					osDelay(1U);
 				}
 
 				commandedTheta1Deg = homeTheta1Deg;
@@ -271,11 +339,12 @@ void StartMotorTask(void *argument)
 
 				motorState = MOTOR_STATE_IDLE;
 
-			    status = MOTOR_STATUS_MOVE_DONE;
+				message.status = MOTOR_STATUS_MOVE_DONE;
+				message.error = MOTOR_ERROR_NONE;
 
-			    if (osMessageQueuePut(motorStatusQueueHandle, &status, 0U, 0U) != osOK)
+			    if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK)
 			    {
-			        motorState = MOTOR_STATE_ERROR;
+			    	motorState = MOTOR_STATE_ERROR;
 			    }
 
 				break;
@@ -285,7 +354,7 @@ void StartMotorTask(void *argument)
 			{
 				float deltaDeg;
 				float targetDeg;
-				MotorStatus_t status;
+				MotorStatusMessage_t message;
 
 				deltaDeg = (float)command.delta_x10 / 10.0f;
 
@@ -296,14 +365,22 @@ void StartMotorTask(void *argument)
 
 				switch (command.axis){
 					case MOTOR_AXIS_THETA1:
+
+						targetDeg = commandedTheta1Deg + deltaDeg;
+
+						if (Motor_IsAngleInRange(command.axis, targetDeg) == 0U){
+							Motor_ReportError(MOTOR_ERROR_ANGLE_LIMIT);
+							break;
+						}
+
 						if (Stepper_IsBusy() != 0U){
 							debugStepperStatus = STEPPER_ERROR_BUSY;
-						    motorState = MOTOR_STATE_ERROR;
+							Motor_ReportError(MOTOR_ERROR_STEPPER_BUSY);
 						    break;
 						}
 						debugStepperStatus = Stepper_MoveRelative(deltaDeg);
 						if(debugStepperStatus != STEPPER_OK){
-							motorState = MOTOR_STATE_ERROR;
+							Motor_ReportError(MOTOR_ERROR_STEPPER);
 							break;
 						}
 
@@ -312,17 +389,24 @@ void StartMotorTask(void *argument)
 						while(Stepper_IsBusy()!= 0U){
 							osDelay(1U);
 						}
-					    commandedTheta1Deg += deltaDeg;
+					    commandedTheta1Deg = targetDeg;
 						motorState = MOTOR_STATE_IDLE;
 
 						break;
 
 					case MOTOR_AXIS_THETA2:
+
 						targetDeg = commandedTheta2Deg + deltaDeg;
+
+						if (Motor_IsAngleInRange(command.axis, targetDeg) == 0U){
+							Motor_ReportError(MOTOR_ERROR_ANGLE_LIMIT);
+							break;
+						}
+
 						debugServo2Status = Servo_SetAngle(SERVO_CHANNEL_THETA2, targetDeg);
 
 						if(debugServo2Status != SERVO_OK){
-							motorState = MOTOR_STATE_ERROR;
+							Motor_ReportError(MOTOR_ERROR_SERVO2);
 							break;
 						}
 
@@ -331,11 +415,18 @@ void StartMotorTask(void *argument)
 						break;
 
 					case MOTOR_AXIS_THETA3:
+
 						targetDeg = commandedTheta3Deg + deltaDeg;
+
+						if (Motor_IsAngleInRange(command.axis, targetDeg) == 0U){
+							Motor_ReportError(MOTOR_ERROR_ANGLE_LIMIT);
+							break;
+						}
+
 						debugServo3Status = Servo_SetAngle(SERVO_CHANNEL_THETA3, targetDeg);
 
 						if(debugServo3Status != SERVO_OK){
-							motorState = MOTOR_STATE_ERROR;
+							Motor_ReportError(MOTOR_ERROR_SERVO3);
 							break;
 						}
 
@@ -344,14 +435,15 @@ void StartMotorTask(void *argument)
 						break;
 
 					default:
-						motorState = MOTOR_STATE_ERROR;
+						Motor_ReportError(MOTOR_ERROR_INVALID_AXIS);
 						break;
 				}
 
 				if (motorState == MOTOR_STATE_IDLE){
-					status = MOTOR_STATUS_MOVE_DONE;
+					message.status = MOTOR_STATUS_MOVE_DONE;
+					message.error = MOTOR_ERROR_NONE;
 
-					if (osMessageQueuePut(motorStatusQueueHandle, &status, 0U, 0U) != osOK){
+					if (osMessageQueuePut(motorStatusQueueHandle, &message, 0U, 0U) != osOK){
 						motorState = MOTOR_STATE_ERROR;
 					}
 
@@ -360,7 +452,7 @@ void StartMotorTask(void *argument)
 			}
 
 			default:
-				motorState = MOTOR_STATE_ERROR;
+				Motor_ReportError(MOTOR_ERROR_INVALID_COMMAND);
 
 				break;
         }
