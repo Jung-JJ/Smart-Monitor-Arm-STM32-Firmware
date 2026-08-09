@@ -158,10 +158,10 @@ void MX_FREERTOS_Init(void) {
       Error_Handler();
   }
 
-  encoderTaskHandle = osThreadNew(StartEncoderTask, NULL, &encoderTask_attributes);
-  if(encoderTaskHandle == NULL){
-	  Error_Handler();
-  }
+//  encoderTaskHandle = osThreadNew(StartEncoderTask, NULL, &encoderTask_attributes);
+//  if(encoderTaskHandle == NULL){
+//	  Error_Handler();
+//  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

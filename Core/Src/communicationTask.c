@@ -6,20 +6,11 @@
 #include "encoderTask.h"
 #include "motorTask.h"
 
-#define HEARTBEAT_TIMEOUT_MS       5000U
-#define PROTOCOL_RX_TIMEOUT_MS      100U
+#define HEARTBEAT_TIMEOUT_MS       3000U
+#define PROTOCOL_RX_TIMEOUT_MS       20U
 #define UART_RX_WAIT_TIMEOUT_MS       5U
 #define CURRENT_ANGLE_TX_PERIOD_MS  200U
 
-volatile uint32_t debugHeartbeatInterval = 0U;
-volatile uint32_t debugHeartbeatMaxInterval = 0U;
-volatile uint8_t debugPreviousAliveCounter = 0U;
-volatile uint8_t debugAliveCounterGap = 0U;
-volatile uint32_t debugUartRxByteCount = 0U;
-volatile uint32_t debugFrameCompleteCount = 0U;
-volatile uint32_t debugDecodeOkCount = 0U;
-volatile uint32_t debugDecodeFailCount = 0U;
-volatile uint32_t debugParserTimeoutCount = 0U;
 
 extern osMessageQueueId_t motorCommandQueueHandle;
 extern osMessageQueueId_t motorStatusQueueHandle;
@@ -259,49 +250,21 @@ void StartCommunicationTask(void *argument)
     {
         if (HAL_UART_Receive(&huart2,&rxByte,1U,UART_RX_WAIT_TIMEOUT_MS) == HAL_OK)
         {
-        	debugUartRxByteCount++;
             lastRxByteTick = osKernelGetTickCount();
             Protocol_RxProcessByte(&rxParser, rxByte);
 
             if (rxParser.frame_complete == 1U)
             {
-            	debugFrameCompleteCount++;
                 decodeStatus = Protocol_RxDecodeMessage(&rxParser,&rxMessage);
                 Protocol_RxParserReset(&rxParser);
 
                 if (decodeStatus == PROTOCOL_OK)
                 {
-                	debugDecodeOkCount++;
                     switch (rxMessage.msg_id){
 						case PROTOCOL_MSG_HEARTBEAT:
 						{
 							if (rxMessage.data_length == 1U)
 							{
-								uint32_t nowTick;
-
-								nowTick = osKernelGetTickCount();
-
-								debugHeartbeatInterval =
-									nowTick - lastHeartbeatTick;
-
-								if (debugHeartbeatInterval > debugHeartbeatMaxInterval)
-								{
-									debugHeartbeatMaxInterval =
-										debugHeartbeatInterval;
-								}
-
-								lastHeartbeatTick = nowTick;
-
-								debugPreviousAliveCounter = lastAliveCounter;
-
-								lastAliveCounter = rxMessage.data[0];
-
-								debugAliveCounterGap =
-									(uint8_t)(lastAliveCounter -
-											  debugPreviousAliveCounter);
-
-								heartbeatReceiveCount++;
-								communicationLost = 0U;
 
 								Communication_SendAck(rxMessage.msg_id);
 
@@ -397,10 +360,6 @@ void StartCommunicationTask(void *argument)
                             break;
                     }
                 }
-                else
-                    {
-                        debugDecodeFailCount++;
-                    }
             }
         }
 
@@ -409,7 +368,6 @@ void StartCommunicationTask(void *argument)
         if ((rxParser.state != PROTOCOL_RX_WAIT_START) &&
             ((currentTick - lastRxByteTick) >= PROTOCOL_RX_TIMEOUT_MS)) //아직 프레임을 받는데 타임아웃보다 오래걸리면 패킷 버리기.
         {
-        	debugParserTimeoutCount++;
             Protocol_RxParserReset(&rxParser);
         }
 
