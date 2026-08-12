@@ -89,13 +89,13 @@ const osMessageQueueAttr_t motorStatusQueue_attributes =
 		.name = "motorStatusQueue"
 };
 /* USER CODE END Variables */
-/* Definitions for EncoderTask */
-//osThreadId_t EncoderTaskHandle;
-//const osThreadAttr_t EncoderTask_attributes = {
-//  .name = "EncoderTask",
-//  .stack_size = 256U * 4U,
-//  .priority = (osPriority_t) osPriorityNormal,
-//};
+/* Definitions for DefaultTask */
+osThreadId_t DefaultTaskHandle;
+const osThreadAttr_t DefaultTask_attributes = {
+  .name = "DefaultTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -142,11 +142,9 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of EncoderTask */
-//  EncoderTaskHandle = osThreadNew(StartDefaultTask, NULL, &EncoderTask_attributes);
-//  if(EncoderTaskHandle == NULL){
-//	  Error_Handler();
-//  }
+  /* creation of DefaultTask */
+  DefaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &DefaultTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   commuicationTaskHandle = osThreadNew(StartCommunicationTask, NULL, &communicationTask_attributes);
@@ -177,16 +175,15 @@ void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-//void StartDefaultTask(void *argument)
-//{
-//  /* USER CODE BEGIN StartDefaultTask */
-//  /* Infinite loop */
-//  for(;;)
-//  {
-//    osDelay(1);
-//  }
-//  /* USER CODE END StartDefaultTask */
-//}
+void StartDefaultTask(void *argument)
+{
+  /* USER CODE BEGIN StartDefaultTask */
+  for(;;)
+  {
+    osDelay(1000);
+  }
+  /* USER CODE END StartDefaultTask */
+}
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
