@@ -29,7 +29,8 @@ typedef enum
     MOTOR_ERROR_QUEUE           = 0x0A,
     MOTOR_ERROR_INVALID_COMMAND = 0x0B,
 
-	MOTOR_ERROR_COMM_LOST       = 0x0C
+	MOTOR_ERROR_COMM_LOST       = 0x0C,
+	MOTOR_ERROR_ENCODER
 
 } MotorError_t;
 

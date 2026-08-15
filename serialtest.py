@@ -80,6 +80,7 @@ ERROR_NAMES = {
     0x0A: "QUEUE",
     0x0B: "INVALID_COMMAND",
     0x0C: "COMM_LOST",
+    0x0D: "ENCODER",
 }
 
 

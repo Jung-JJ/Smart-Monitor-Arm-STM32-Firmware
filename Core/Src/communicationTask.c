@@ -5,19 +5,19 @@
 #include "motorCommand.h"
 #include "encoderTask.h"
 #include "motorTask.h"
+#include "uart_dma.h"
 
 #define HEARTBEAT_TIMEOUT_MS       3000U
 #define PROTOCOL_RX_TIMEOUT_MS       20U
-#define UART_RX_WAIT_TIMEOUT_MS       5U
 #define CURRENT_ANGLE_TX_PERIOD_MS  200U
 
 
 extern osMessageQueueId_t motorCommandQueueHandle;
 extern osMessageQueueId_t motorStatusQueueHandle;
+extern osMessageQueueId_t uartRxQueueHandle;
 
 static uint8_t txFrame[PROTOCOL_MAX_FRAME_LENGTH];
 static uint16_t txFrameLength = 0U;
-static uint8_t rxByte;
 static ProtocolRxParser_t rxParser;
 
 static ProtocolMessage_t rxMessage;
@@ -74,12 +74,10 @@ static void Communication_SendError(MotorError_t error)
 
     if (buildStatus == PROTOCOL_OK)
     {
-        (void)HAL_UART_Transmit(
-            &huart2,
-            txFrame,
-            txFrameLength,
-            100U
-        );
+    	(void)UartDma_QueueTransmit(
+    	        txFrame,
+    	        txFrameLength
+    	    );
     }
 }
 
@@ -98,12 +96,10 @@ static void Communication_SendReady(void)
 
     if (buildStatus == PROTOCOL_OK)
     {
-        (void)HAL_UART_Transmit(
-            &huart2,
-            txFrame,
-            txFrameLength,
-            100U
-        );
+    	(void)UartDma_QueueTransmit(
+    	        txFrame,
+    	        txFrameLength
+    	    );
     }
 }
 
@@ -136,12 +132,10 @@ static void Communication_SendAck(uint8_t receivedMsgId)
 
     if (buildStatus == PROTOCOL_OK)
     {
-        (void)HAL_UART_Transmit(
-            &huart2,
-            txFrame,
-            txFrameLength,
-            100U
-        );
+    	(void)UartDma_QueueTransmit(
+    	        txFrame,
+    	        txFrameLength
+    	    );
     }
 }
 
@@ -215,10 +209,8 @@ static uint8_t Communication_SendCurrentAngle(void)
         return 0U;
     }
 
-    if (HAL_UART_Transmit(&huart2,
-                          txFrame,
-                          txFrameLength,
-                          100U) != HAL_OK)
+    if (UartDma_QueueTransmit(txFrame,
+            txFrameLength) != HAL_OK)
     {
         return 0U;
     }
@@ -263,10 +255,8 @@ static uint8_t Communication_SendCurrentCommandAngles(void)
         return 0U;
     }
 
-    if (HAL_UART_Transmit(&huart2,
-                          txFrame,
-                          txFrameLength,
-                          100U) != HAL_OK)
+    if (UartDma_QueueTransmit(txFrame,
+            txFrameLength) != HAL_OK)
     {
         return 0U;
     }
@@ -282,11 +272,15 @@ void StartCommunicationTask(void *argument)
     MotorStatusMessage_t motorStatusMessage;
     osStatus_t queueStatus; //큐 상태
     uint32_t lastCurrentAngleTxTick;
-
+    UartDmaRxChunk_t rxChunk;
     (void)argument;
 
     Protocol_RxParserInit(&rxParser);
 
+    if (UartDma_StartReceive() != HAL_OK)
+    {
+        Error_Handler();
+    }
     communicationLost = 1U;
     readySent = 0U;
 
@@ -296,149 +290,150 @@ void StartCommunicationTask(void *argument)
 
     for (;;)
     {
-        if (HAL_UART_Receive(&huart2,&rxByte,1U,UART_RX_WAIT_TIMEOUT_MS) == HAL_OK)
-        {
-            lastRxByteTick = osKernelGetTickCount();
-            Protocol_RxProcessByte(&rxParser, rxByte);
+    	if (osMessageQueueGet(uartRxQueueHandle, &rxChunk, NULL, 0U) == osOK){
+    	    for (uint16_t i = 0U; i < rxChunk.length; i++){
+    	        lastRxByteTick = osKernelGetTickCount();
 
-            if (rxParser.frame_complete == 1U)
-            {
-                decodeStatus = Protocol_RxDecodeMessage(&rxParser,&rxMessage);
-                Protocol_RxParserReset(&rxParser);
+    	        Protocol_RxProcessByte(&rxParser, rxChunk.data[i]);
 
-                if (decodeStatus == PROTOCOL_OK)
-                {
-                    switch (rxMessage.msg_id){
-						case PROTOCOL_MSG_HEARTBEAT:
-						{
-							if (rxMessage.data_length == 1U)
+    	        if (rxParser.frame_complete == 1U)
+    	        {
+    	            decodeStatus = Protocol_RxDecodeMessage(&rxParser, &rxMessage);
+
+    	            Protocol_RxParserReset(&rxParser);
+
+					if (decodeStatus == PROTOCOL_OK)
+					{
+						switch (rxMessage.msg_id){
+							case PROTOCOL_MSG_HEARTBEAT:
 							{
-								lastAliveCounter = rxMessage.data[0];
-
-								heartbeatReceiveCount++;
-
-								lastHeartbeatTick =
-									osKernelGetTickCount();
-
-								communicationLost = 0U;
-
-								Communication_SendAck(
-									rxMessage.msg_id
-								);
-
-								if ((motorState == MOTOR_STATE_IDLE) &&
-									(readySent == 0U))
+								if (rxMessage.data_length == 1U)
 								{
-									Communication_SendReady();
+									lastAliveCounter = rxMessage.data[0];
 
-									readySent = 1U;
-								}
-							}
+									heartbeatReceiveCount++;
 
-							break;
-						}
+									lastHeartbeatTick = osKernelGetTickCount();
 
-                        case PROTOCOL_MSG_SET_TARGET:
-                        	{
-                        		if (communicationLost != 0U)
-                        		    {
-                        		        Communication_SendError(
-                        		            MOTOR_ERROR_COMM_LOST
-                        		        );
+									communicationLost = 0U;
 
-                        		        break;
-                        		    }
+									Communication_SendAck(
+										rxMessage.msg_id
+									);
 
-								if (rxMessage.data_length == 6U)
-								{
-									motorCommand.type = MOTOR_COMMAND_SET_TARGET;
-
-									motorCommand.theta1_x10 =
-										Protocol_ReadInt16BigEndian(&rxMessage.data[0]);
-
-									motorCommand.theta2_x10 =
-										Protocol_ReadInt16BigEndian(&rxMessage.data[2]);
-
-									motorCommand.theta3_x10 =
-										Protocol_ReadInt16BigEndian(&rxMessage.data[4]);
-
-									queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
-
-									if (queueStatus == osOK)
+									if ((motorState == MOTOR_STATE_IDLE) &&
+										(readySent == 0U))
 									{
+										Communication_SendReady();
 
-										Communication_SendAck(
-											rxMessage.msg_id
-										);
+										readySent = 1U;
 									}
 								}
 
 								break;
-                        	}
-
-                        case PROTOCOL_MSG_JOG:
-
-                        	if (communicationLost != 0U){
-								Communication_SendError(MOTOR_ERROR_COMM_LOST);
-								break;
 							}
 
-                        	if(rxMessage.data_length == 3U){
-                        		motorCommand.type = MOTOR_COMMAND_JOG;
-                        		motorCommand.axis = (MotorAxis_t)rxMessage.data[0];
+							case PROTOCOL_MSG_SET_TARGET:
+								{
+									if (communicationLost != 0U)
+										{
+											Communication_SendError(
+												MOTOR_ERROR_COMM_LOST
+											);
 
-                        		motorCommand.delta_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[1]);
-                        		queueStatus = osMessageQueuePut(motorCommandQueueHandle,
-                        				&motorCommand, 0U, 0U);
+											break;
+										}
 
-                        		if(queueStatus == osOK){
-                        			Communication_SendAck(rxMessage.msg_id);
-                        		}
+									if (rxMessage.data_length == 6U)
+									{
+										motorCommand.type = MOTOR_COMMAND_SET_TARGET;
 
-                        	}
-                        	break;
-                        case PROTOCOL_MSG_SET_HOME:
-						{
-							if (communicationLost != 0U)
+										motorCommand.theta1_x10 =
+											Protocol_ReadInt16BigEndian(&rxMessage.data[0]);
+
+										motorCommand.theta2_x10 =
+											Protocol_ReadInt16BigEndian(&rxMessage.data[2]);
+
+										motorCommand.theta3_x10 =
+											Protocol_ReadInt16BigEndian(&rxMessage.data[4]);
+
+										queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
+
+										if (queueStatus == osOK)
+										{
+
+											Communication_SendAck(
+												rxMessage.msg_id
+											);
+										}
+									}
+
+									break;
+								}
+
+							case PROTOCOL_MSG_JOG:
+
+								if (communicationLost != 0U){
+									Communication_SendError(MOTOR_ERROR_COMM_LOST);
+									break;
+								}
+
+								if(rxMessage.data_length == 3U){
+									motorCommand.type = MOTOR_COMMAND_JOG;
+									motorCommand.axis = (MotorAxis_t)rxMessage.data[0];
+
+									motorCommand.delta_x10 = Protocol_ReadInt16BigEndian(&rxMessage.data[1]);
+									queueStatus = osMessageQueuePut(motorCommandQueueHandle,
+											&motorCommand, 0U, 0U);
+
+									if(queueStatus == osOK){
+										Communication_SendAck(rxMessage.msg_id);
+									}
+
+								}
+								break;
+							case PROTOCOL_MSG_SET_HOME:
 							{
-								Communication_SendError(MOTOR_ERROR_COMM_LOST);
+								if (communicationLost != 0U)
+								{
+									Communication_SendError(MOTOR_ERROR_COMM_LOST);
+									break;
+								}
+
+								if(rxMessage.data_length == 0U){
+									motorCommand.type = MOTOR_COMMAND_SET_HOME;
+									queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
+
+									if(queueStatus ==osOK){
+										Communication_SendAck(rxMessage.msg_id);
+									}
+								}
 								break;
 							}
 
-							if(rxMessage.data_length == 0U){
-								motorCommand.type = MOTOR_COMMAND_SET_HOME;
-								queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
-
-								if(queueStatus ==osOK){
-									Communication_SendAck(rxMessage.msg_id);
+							case PROTOCOL_MSG_MOVE_HOME:
+							{
+								if (communicationLost != 0U){
+									Communication_SendError(MOTOR_ERROR_COMM_LOST);
+									break;
 								}
+
+								if(rxMessage.data_length == 0U){
+									motorCommand.type = MOTOR_COMMAND_MOVE_HOME;
+									queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
+
+									if(queueStatus ==osOK){
+										Communication_SendAck(rxMessage.msg_id);
+									}
+								}
+								break;
 							}
-							break;
+
+							default:
+								break;
 						}
-
-                        case PROTOCOL_MSG_MOVE_HOME:
-                        {
-                        	if (communicationLost != 0U){
-								Communication_SendError(MOTOR_ERROR_COMM_LOST);
-								break;
-							}
-
-                        	if(rxMessage.data_length == 0U){
-								motorCommand.type = MOTOR_COMMAND_MOVE_HOME;
-								queueStatus = osMessageQueuePut(motorCommandQueueHandle, &motorCommand, 0U, 0U);
-
-								if(queueStatus ==osOK){
-									Communication_SendAck(rxMessage.msg_id);
-								}
-							}
-							break;
-                        }
-
-                        default:
-                            break;
-                    }
-                }
-            }
+					}
+    	        }
         }
 
         currentTick = osKernelGetTickCount();
@@ -497,12 +492,10 @@ void StartCommunicationTask(void *argument)
 
 					if (buildStatus == PROTOCOL_OK)
 					{
-						(void)HAL_UART_Transmit(
-							&huart2,
-							txFrame,
-							txFrameLength,
-							100U
-						);
+						(void)UartDma_QueueTransmit(
+						        txFrame,
+						        txFrameLength
+						    );
 					}
 
 					(void)Communication_SendCurrentCommandAngles();
@@ -521,6 +514,8 @@ void StartCommunicationTask(void *argument)
                     break;
                 }
             }
+          }
         }
+    	UartDma_ProcessTransmit();
     }
 }

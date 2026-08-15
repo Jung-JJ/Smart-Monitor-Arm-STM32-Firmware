@@ -1,1 +1,2 @@
-../Core/Src/encoderTask.c:25:6:StartEncoderTask	24	static
+../Core/Src/encoderTask.c:29:14:Encoder_CalculateRelativeAngle	24	static
+../Core/Src/encoderTask.c:47:6:StartEncoderTask	24	static

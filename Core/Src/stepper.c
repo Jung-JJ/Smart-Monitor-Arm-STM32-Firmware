@@ -41,7 +41,7 @@
  * Duty = 약 50%
  */
 #define STEPPER_TIMER_CHANNEL        TIM_CHANNEL_1
-#define STEPPER_PWM_COMPARE          1000U
+#define STEPPER_PWM_COMPARE          703U
 
 static volatile uint32_t stepCount = 0U;
 static volatile uint32_t targetStepCount = 0U;
@@ -109,6 +109,8 @@ void Stepper_HandlePulseFinished(void)
 
         __HAL_TIM_SET_COMPARE(&htim3, STEPPER_TIMER_CHANNEL, 0U);
 
+        Stepper_Disable();
+
         stepCount = 0U;
         targetStepCount = 0U;
         stepperBusy = 0U;
@@ -150,6 +152,8 @@ StepperStatus_t Stepper_MoveRelative(float angle_deg)
 
     Stepper_SetDirection(direction);
 
+    Stepper_Enable();
+
     stepCount = 0U;
     targetStepCount = requestedSteps;
     stepperBusy = 1U;
@@ -185,12 +189,6 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
 void Stepper_Init(void)
 {
     Stepper_Disable();
-
-    osDelay(100U);
-
-    Stepper_Enable();
-
-    osDelay(10U);
 
     stepCount = 0U;
     targetStepCount = 0U;

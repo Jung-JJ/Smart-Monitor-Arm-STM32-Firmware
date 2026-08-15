@@ -29,6 +29,7 @@
 #include "motorCommand.h"
 #include "motorTask.h"
 #include "encoderTask.h"
+#include "uart_dma.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -88,6 +89,20 @@ const osMessageQueueAttr_t motorStatusQueue_attributes =
 {
 		.name = "motorStatusQueue"
 };
+
+osMessageQueueId_t uartRxQueueHandle;
+
+const osMessageQueueAttr_t uartRxQueue_attributes =
+{
+		.name = "uartRxQueue"
+};
+
+osMessageQueueId_t uartTxQueueHandle;
+
+const osMessageQueueAttr_t uartTxQueue_attributes =
+{
+		.name = "uartTxQueue"
+};
 /* USER CODE END Variables */
 /* Definitions for DefaultTask */
 osThreadId_t DefaultTaskHandle;
@@ -139,6 +154,15 @@ void MX_FREERTOS_Init(void) {
 	if(motorStatusQueueHandle == NULL){
 		Error_Handler();
 	}
+
+	uartRxQueueHandle = osMessageQueueNew(8U, sizeof(UartDmaRxChunk_t), &uartRxQueue_attributes);
+	if(uartRxQueueHandle == NULL){
+		Error_Handler();
+	}
+	uartTxQueueHandle = osMessageQueueNew(8U, sizeof(UartDmaTxFrame_t), &uartTxQueue_attributes);
+	if(uartTxQueueHandle == NULL){
+		Error_Handler();
+	}
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -156,10 +180,10 @@ void MX_FREERTOS_Init(void) {
       Error_Handler();
   }
 
-//  encoderTaskHandle = osThreadNew(StartEncoderTask, NULL, &encoderTask_attributes);
-//  if(encoderTaskHandle == NULL){
-//	  Error_Handler();
-//  }
+  encoderTaskHandle = osThreadNew(StartEncoderTask, NULL, &encoderTask_attributes);
+  if(encoderTaskHandle == NULL){
+	  Error_Handler();
+  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

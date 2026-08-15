@@ -18,7 +18,7 @@
 #define AS5600_RAW_ANGLE_MASK    0x0FFFU
 
 #define AS5600_I2C_TIMEOUT_MS    100U
-
+volatile uint16_t debugAS5600RawAngle = 0U;
 AS5600_Status_t AS5600_ReadRawAngle(uint16_t *raw_angle){
 	uint8_t rx_Data[2];
 	HAL_StatusTypeDef hal_status;
@@ -35,7 +35,7 @@ AS5600_Status_t AS5600_ReadRawAngle(uint16_t *raw_angle){
 	}
 
 	*raw_angle = (((uint16_t)rx_Data[0]<<8U)|((uint16_t)rx_Data[1])) & AS5600_RAW_ANGLE_MASK;
-
+	debugAS5600RawAngle = *raw_angle;
 	return AS5600_OK;
 }
 

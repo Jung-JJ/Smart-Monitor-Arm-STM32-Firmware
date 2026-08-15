@@ -11,7 +11,8 @@ Core/Src/motorTask.o: ../Core/Src/motorTask.c ../Core/Inc/motorTask.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h \
- ../Core/Inc/motorCommand.h ../Core/Inc/servo.h
+ ../Core/Inc/motorCommand.h ../Core/Inc/servo.h ../Core/Inc/encoderTask.h \
+ ../Core/Inc/as5600.h
 ../Core/Inc/motorTask.h:
 ../Core/Inc/stepper.h:
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os.h:
@@ -27,3 +28,5 @@ Core/Src/motorTask.o: ../Core/Src/motorTask.c ../Core/Inc/motorTask.h \
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h:
 ../Core/Inc/motorCommand.h:
 ../Core/Inc/servo.h:
+../Core/Inc/encoderTask.h:
+../Core/Inc/as5600.h:

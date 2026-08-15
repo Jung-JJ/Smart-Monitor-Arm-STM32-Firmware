@@ -31,4 +31,6 @@ ServoStatus_t Servo_SetAngle(ServoChannel_t channel,
 
 uint16_t Servo_AngleToPulse(float angle_deg);
 
+ServoStatus_t Servo_MoveSmooth(float theta2_deg, float theta3_deg);
+
 #endif /* INC_SERVO_H_ */

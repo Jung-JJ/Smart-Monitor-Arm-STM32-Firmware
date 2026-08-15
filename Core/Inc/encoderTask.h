@@ -10,7 +10,8 @@
 #include "as5600.h"
 
 void StartEncoderTask(void *argument);
+
 extern volatile float currentEncoderAngleDeg;
 extern volatile AS5600_Status_t encoderStatus;
-
+extern volatile uint32_t encoderReadCount;
 #endif /* INC_ENCODERTASK_H_ */

@@ -7,7 +7,7 @@
 
 
 #include "servo.h"
-
+#include "cmsis_os.h"
 #include "tim.h"
 
 #define SERVO_MIN_ANGLE_DEG      (-135.0f)
@@ -19,6 +19,41 @@
 
 #define SERVO_THETA2_CHANNEL     TIM_CHANNEL_1
 #define SERVO_THETA3_CHANNEL     TIM_CHANNEL_2
+
+#define SERVO_UPDATE_PERIOD_MS       20U
+#define SERVO_SPEED_DEG_PER_SEC      20.0f //서보 속도 조저
+#define SERVO_STEP_DEG               (SERVO_SPEED_DEG_PER_SEC * ((float)SERVO_UPDATE_PERIOD_MS / 1000.0f))
+
+
+static float servoTheta2CurrentDeg = 0.0f;
+static float servoTheta3CurrentDeg = 0.0f;
+
+
+
+static float Servo_MoveToward(float current_deg,
+                              float target_deg)
+{
+    if (current_deg < target_deg)
+    {
+        current_deg += SERVO_STEP_DEG;
+
+        if (current_deg > target_deg)
+        {
+            current_deg = target_deg;
+        }
+    }
+    else if (current_deg > target_deg)
+    {
+        current_deg -= SERVO_STEP_DEG;
+
+        if (current_deg < target_deg)
+        {
+            current_deg = target_deg;
+        }
+    }
+
+    return current_deg;
+}
 
 uint16_t Servo_AngleToPulse(float angle_deg)
 {
@@ -108,6 +143,65 @@ ServoStatus_t Servo_SetAngle(ServoChannel_t channel,
     __HAL_TIM_SET_COMPARE(&htim4,
                           timer_channel,
                           pulse_us);
+
+    if (channel == SERVO_CHANNEL_THETA2)
+    {
+        servoTheta2CurrentDeg = angle_deg;
+    }
+    else
+    {
+        servoTheta3CurrentDeg = angle_deg;
+    }
+
+    return SERVO_OK;
+}
+
+ServoStatus_t Servo_MoveSmooth(float theta2_deg,
+                               float theta3_deg)
+{
+    ServoStatus_t status;
+    float nextTheta2Deg;
+    float nextTheta3Deg;
+
+    if ((theta2_deg < SERVO_MIN_ANGLE_DEG) ||
+        (theta2_deg > SERVO_MAX_ANGLE_DEG) ||
+        (theta3_deg < SERVO_MIN_ANGLE_DEG) ||
+        (theta3_deg > SERVO_MAX_ANGLE_DEG))
+    {
+        return SERVO_ERROR_INVALID_ANGLE;
+    }
+
+    while ((servoTheta2CurrentDeg != theta2_deg) ||
+           (servoTheta3CurrentDeg != theta3_deg))
+    {
+        nextTheta2Deg =
+            Servo_MoveToward(servoTheta2CurrentDeg,
+                             theta2_deg);
+
+        nextTheta3Deg =
+            Servo_MoveToward(servoTheta3CurrentDeg,
+                             theta3_deg);
+
+        status =
+            Servo_SetAngle(SERVO_CHANNEL_THETA2,
+                           nextTheta2Deg);
+
+        if (status != SERVO_OK)
+        {
+            return status;
+        }
+
+        status =
+            Servo_SetAngle(SERVO_CHANNEL_THETA3,
+                           nextTheta3Deg);
+
+        if (status != SERVO_OK)
+        {
+            return status;
+        }
+
+        osDelay(SERVO_UPDATE_PERIOD_MS);
+    }
 
     return SERVO_OK;
 }

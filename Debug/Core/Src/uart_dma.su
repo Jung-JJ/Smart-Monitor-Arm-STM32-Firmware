@@ -1,0 +1,5 @@
+../Core/Src/uart_dma.c:24:19:UartDma_StartReceive	16	static
+../Core/Src/uart_dma.c:42:6:HAL_UARTEx_RxEventCallback	88	static
+../Core/Src/uart_dma.c:75:19:UartDma_QueueTransmit	40	static
+../Core/Src/uart_dma.c:108:6:UartDma_ProcessTransmit	8	static
+../Core/Src/uart_dma.c:135:6:HAL_UART_TxCpltCallback	16	static
