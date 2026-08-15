@@ -6,7 +6,7 @@
 #include "encoderTask.h"
 #include "motorTask.h"
 #include "uart_dma.h"
-
+#include <stdint.h>
 #define HEARTBEAT_TIMEOUT_MS       3000U
 #define PROTOCOL_RX_TIMEOUT_MS       20U
 #define CURRENT_ANGLE_TX_PERIOD_MS  200U
@@ -35,6 +35,9 @@ volatile uint8_t communicationLost = 1U;
 
 volatile int16_t debugCurrentAngleX10 = 0;
 
+volatile uint32_t debugCurrentTick = 0U;
+volatile uint32_t debugHeartbeatElapsed = 0U;
+
 static uint8_t Communication_CommandTypeToMsgId(uint8_t commandType)
 {
     switch (commandType)
@@ -50,6 +53,9 @@ static uint8_t Communication_CommandTypeToMsgId(uint8_t commandType)
 
         case MOTOR_COMMAND_JOG:
             return PROTOCOL_MSG_JOG;
+
+        case MOTOR_COMMAND_CLEAR_ERROR:
+            return PROTOCOL_MSG_CLEAR_ERROR;
 
         default:
             return 0U;
@@ -429,11 +435,38 @@ void StartCommunicationTask(void *argument)
 								break;
 							}
 
+							case PROTOCOL_MSG_CLEAR_ERROR:
+							{
+							    if (rxMessage.data_length == 0U)
+							    {
+							        motorCommand.type =
+							            MOTOR_COMMAND_CLEAR_ERROR;
+
+							        queueStatus =
+							            osMessageQueuePut(
+							                motorCommandQueueHandle,
+							                &motorCommand,
+							                0U,
+							                0U
+							            );
+
+							        if (queueStatus == osOK)
+							        {
+							            Communication_SendAck(
+							                rxMessage.msg_id
+							            );
+							        }
+							    }
+
+							    break;
+							}
+
 							default:
 								break;
 						}
 					}
     	        }
+    	    }
         }
 
         currentTick = osKernelGetTickCount();
@@ -446,10 +479,17 @@ void StartCommunicationTask(void *argument)
 
         currentTick = osKernelGetTickCount();
 
-        if ((currentTick - lastHeartbeatTick) >= HEARTBEAT_TIMEOUT_MS)
+        debugCurrentTick = currentTick;
+        debugHeartbeatElapsed = currentTick - lastHeartbeatTick;
+
+        if (debugHeartbeatElapsed >= HEARTBEAT_TIMEOUT_MS)
         {
-            communicationLost = 1U;
-            readySent = 0U;
+            if (communicationLost == 0U)
+            {
+                communicationLost = 1U;
+                readySent = 0U;
+                motorCommLostRequest = 1U;
+            }
         }
 
         if ((currentTick - lastCurrentAngleTxTick) >= CURRENT_ANGLE_TX_PERIOD_MS)
@@ -514,7 +554,6 @@ void StartCommunicationTask(void *argument)
                     break;
                 }
             }
-          }
         }
     	UartDma_ProcessTransmit();
     	osDelay(1U);

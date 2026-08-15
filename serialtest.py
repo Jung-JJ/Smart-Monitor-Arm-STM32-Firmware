@@ -30,7 +30,7 @@ MSG_SET_TARGET = 0x10
 MSG_SET_HOME = 0x11
 MSG_MOVE_HOME = 0x12
 MSG_JOG = 0x13
-
+MSG_CLEAR_ERROR = 0x14
 
 # ============================================================
 # STM32 -> Python
@@ -64,6 +64,7 @@ COMMAND_NAMES = {
     MSG_SET_HOME: "SET_HOME",
     MSG_MOVE_HOME: "MOVE_HOME",
     MSG_JOG: "JOG",
+    MSG_CLEAR_ERROR: "CLEAR_ERROR",
 }
 
 ERROR_NAMES = {
@@ -81,6 +82,10 @@ ERROR_NAMES = {
     0x0B: "INVALID_COMMAND",
     0x0C: "COMM_LOST",
     0x0D: "ENCODER",
+    0x0C: "COMM_LOST",
+    0x0D: "ENCODER",
+    0x0E: "SYSTEM_LOCKED",
+    0x0F: "ESTOP",
 }
 
 
@@ -329,6 +334,26 @@ def send_move_home(ser):
         frame.hex(" ").upper()
     )
 
+def send_clear_error(ser):
+    data = b""
+
+    frame = build_frame(
+        MSG_CLEAR_ERROR,
+        data
+    )
+
+    safe_write(
+        ser,
+        frame
+    )
+
+    print()
+    print("CLEAR_ERROR TX")
+
+    print(
+        "TX :",
+        frame.hex(" ").upper()
+    )
 
 # ============================================================
 # RX THREAD
@@ -726,6 +751,9 @@ def print_menu():
     print(
         "q  : QUIT"
     )
+    print(
+        "r  : CLEAR_ERROR"
+    )
 
     print(
         "================================"
@@ -983,6 +1011,14 @@ def main():
                 elif command == "help":
 
                     print_menu()
+
+
+
+                elif command == "r":
+
+                    send_clear_error(
+                        ser
+                    )
 
 
                 # ---------------------------------------------

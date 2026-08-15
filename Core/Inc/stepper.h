@@ -36,6 +36,7 @@ uint8_t Stepper_IsBusy(void);
 uint32_t Stepper_GetCurrentStepCount(void);
 uint32_t Stepper_GetTargetStepCount(void);
 
-
+void Stepper_EmergencyStop(void);
 void Stepper_Init(void);
+void Stepper_EmergencyDisableFromISR(void);
 #endif /* INC_STEPPER_H_ */

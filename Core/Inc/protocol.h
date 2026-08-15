@@ -36,7 +36,8 @@ typedef enum
     PROTOCOL_MSG_SET_TARGET = 0x10U,
     PROTOCOL_MSG_SET_HOME   = 0x11U,
     PROTOCOL_MSG_MOVE_HOME  = 0x12U,
-	PROTOCOL_MSG_JOG		= 0x13U
+	PROTOCOL_MSG_JOG		= 0x13U,
+	PROTOCOL_MSG_CLEAR_ERROR= 0x14U
 } ProtocolRxMessageId_t;
 
 /* STM32 -> Jetson message IDs */

@@ -47,6 +47,28 @@ static volatile uint32_t stepCount = 0U;
 static volatile uint32_t targetStepCount = 0U;
 static volatile uint8_t stepperBusy = 0U;
 
+void Stepper_EmergencyDisableFromISR(void)
+{
+    Stepper_Disable();
+}
+
+void Stepper_EmergencyStop(void)
+{
+    (void)HAL_TIM_PWM_Stop_IT(&htim3,
+                              STEPPER_TIMER_CHANNEL);
+
+    __HAL_TIM_SET_COMPARE(&htim3,
+                          STEPPER_TIMER_CHANNEL,
+                          0U);
+
+    Stepper_Disable();
+
+    stepCount = 0U;
+    targetStepCount = 0U;
+    stepperBusy = 0U;
+}
+
+
 static void Stepper_SetDirection(StepperDirection_t direction)
 {
     GPIO_PinState gpioLevel;

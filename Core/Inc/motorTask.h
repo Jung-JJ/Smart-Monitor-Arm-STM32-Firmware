@@ -9,6 +9,8 @@
 #define INC_MOTOR_TASK_H_
 
 #include <stdint.h>
+extern volatile uint8_t motorCommLostRequest;
+extern volatile uint8_t motorEstopRequest;
 
 typedef enum
 {
@@ -30,7 +32,9 @@ typedef enum
     MOTOR_ERROR_INVALID_COMMAND = 0x0B,
 
 	MOTOR_ERROR_COMM_LOST       = 0x0C,
-	MOTOR_ERROR_ENCODER
+	MOTOR_ERROR_ENCODER			= 0x0D,
+	MOTOR_ERROR_SYSTEM_LOCKED   = 0x0E,
+	MOTOR_ERROR_ESTOP         	= 0x0F
 
 } MotorError_t;
 
