@@ -17,14 +17,14 @@ extern osMessageQueueId_t motorCommandQueueHandle;
 extern osMessageQueueId_t motorStatusQueueHandle;
 
 
-#define THETA1_MIN_X10   (-900)
+#define THETA1_MIN_X10   (-450)
 #define THETA1_MAX_X10    900
 
-#define THETA2_MIN_X10   (-1350)
-#define THETA2_MAX_X10   1350
+#define THETA2_MIN_X10   (-1050)
+#define THETA2_MAX_X10   1050
 
-#define THETA3_MIN_X10   (-1350)
-#define THETA3_MAX_X10   1350
+#define THETA3_MIN_X10   (-1050)
+#define THETA3_MAX_X10   1050
 
 #define MOTOR_INIT_THETA2_DEG    0.0f
 #define MOTOR_INIT_THETA3_DEG    0.0f
