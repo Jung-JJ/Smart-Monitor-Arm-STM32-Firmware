@@ -41,8 +41,7 @@ Core/Src/uart_dma.o: ../Core/Src/uart_dma.c ../Core/Inc/uart_dma.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h \
  ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h \
- ../Core/Inc/protocol.h ../Core/Inc/usart.h \
- ../Core/Inc/communicationTask.h
+ ../Core/Inc/protocol.h ../Core/Inc/usart.h
 ../Core/Inc/uart_dma.h:
 ../Core/Inc/main.h:
 ../Drivers/STM32F4xx_HAL_Driver/Inc/stm32f4xx_hal.h:
@@ -89,4 +88,3 @@ Core/Src/uart_dma.o: ../Core/Src/uart_dma.c ../Core/Inc/uart_dma.h \
 ../Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/cmsis_os2.h:
 ../Core/Inc/protocol.h:
 ../Core/Inc/usart.h:
-../Core/Inc/communicationTask.h:

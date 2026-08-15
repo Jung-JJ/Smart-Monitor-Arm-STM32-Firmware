@@ -5,46 +5,75 @@
  *      Author: wowns
  */
 
-
 #include "uart_dma.h"
 
 #include <string.h>
-
 #include "usart.h"
-#include "communicationTask.h"
 
 extern osMessageQueueId_t uartRxQueueHandle;
 extern osMessageQueueId_t uartTxQueueHandle;
 
-static uint8_t uart2_dma_rx_buffer[UART_DMA_RX_BUFFER_SIZE];
 
-static UartDmaTxFrame_t uart2_tx_active_frame;
-static volatile uint8_t uart2_tx_busy = 0U;
+/*
+ * ============================================================
+ * Communication UART Selection
+ * ============================================================
+ *
+ * Jetson : &huart1
+ * PC     : &huart2
+ *
+ * 사용할 UART를 바꿀 때 이 한 줄만 변경하면 된다.
+ */
+static UART_HandleTypeDef * const communicationUart = &huart2;
+
+
+
+static uint8_t uart_dma_rx_buffer[UART_DMA_RX_BUFFER_SIZE];
+
+static UartDmaTxFrame_t uart_tx_active_frame;
+
+static volatile uint8_t uart_tx_busy = 0U;
+
+
 
 HAL_StatusTypeDef UartDma_StartReceive(void)
 {
     HAL_StatusTypeDef status;
 
     status = HAL_UARTEx_ReceiveToIdle_DMA(
-        &huart2,
-        uart2_dma_rx_buffer,
+        communicationUart,
+        uart_dma_rx_buffer,
         UART_DMA_RX_BUFFER_SIZE
     );
 
-    if (status == HAL_OK)
+    if ((status == HAL_OK) &&
+        (communicationUart->hdmarx != NULL))
     {
-        __HAL_DMA_DISABLE_IT(huart2.hdmarx, DMA_IT_HT);
+        /*
+         * Half Transfer interrupt는 사용하지 않음.
+         * UART IDLE 또는 DMA 완료 이벤트만 사용.
+         */
+        __HAL_DMA_DISABLE_IT(
+            communicationUart->hdmarx,
+            DMA_IT_HT
+        );
     }
 
     return status;
 }
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
-                                uint16_t Size)
+
+
+void HAL_UARTEx_RxEventCallback(
+    UART_HandleTypeDef *huart,
+    uint16_t Size)
 {
     UartDmaRxChunk_t rxChunk;
 
-    if (huart->Instance != USART2)
+    /*
+     * 현재 Communication UART에서 발생한 이벤트만 처리
+     */
+    if (huart != communicationUart)
     {
         return;
     }
@@ -54,10 +83,15 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
     {
         rxChunk.length = Size;
 
-        memcpy(rxChunk.data,
-               uart2_dma_rx_buffer,
-               Size);
+        memcpy(
+            rxChunk.data,
+            uart_dma_rx_buffer,
+            Size
+        );
 
+        /*
+         * ISR에서 호출되므로 timeout은 반드시 0
+         */
         (void)osMessageQueuePut(
             uartRxQueueHandle,
             &rxChunk,
@@ -66,11 +100,16 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
         );
     }
 
+    /*
+     * RX DMA Normal Mode이므로 다음 수신 재시작
+     */
     if (UartDma_StartReceive() != HAL_OK)
     {
         Error_Handler();
     }
 }
+
+
 
 HAL_StatusTypeDef UartDma_QueueTransmit(
     const uint8_t *data,
@@ -105,38 +144,39 @@ HAL_StatusTypeDef UartDma_QueueTransmit(
     return HAL_OK;
 }
 
+
 void UartDma_ProcessTransmit(void)
 {
-    if (uart2_tx_busy != 0U)
+    if (uart_tx_busy != 0U)
     {
         return;
     }
 
     if (osMessageQueueGet(
             uartTxQueueHandle,
-            &uart2_tx_active_frame,
+            &uart_tx_active_frame,
             NULL,
             0U) != osOK)
     {
         return;
     }
 
-    uart2_tx_busy = 1U;
+    uart_tx_busy = 1U;
 
     if (HAL_UART_Transmit_DMA(
-            &huart2,
-            uart2_tx_active_frame.data,
-            uart2_tx_active_frame.length) != HAL_OK)
+            communicationUart,
+            uart_tx_active_frame.data,
+            uart_tx_active_frame.length) != HAL_OK)
     {
-        uart2_tx_busy = 0U;
+        uart_tx_busy = 0U;
     }
 }
 
 void HAL_UART_TxCpltCallback(
     UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART2)
+    if (huart == communicationUart)
     {
-        uart2_tx_busy = 0U;
+        uart_tx_busy = 0U;
     }
 }
