@@ -166,7 +166,10 @@ StepperStatus_t Stepper_MoveRelative(float angle_deg)
 
     if (halStatus != HAL_OK)
     {
+    	Stepper_Disable();
+
     	__HAL_TIM_SET_COMPARE(&htim3, STEPPER_TIMER_CHANNEL, 0U);
+
         stepCount = 0U;
         targetStepCount = 0U;
         stepperBusy = 0U;

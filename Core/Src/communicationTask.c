@@ -517,5 +517,7 @@ void StartCommunicationTask(void *argument)
           }
         }
     	UartDma_ProcessTransmit();
+    	osDelay(1U);
+
     }
 }
