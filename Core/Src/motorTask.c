@@ -51,6 +51,7 @@ static float homeTheta3Deg = 0.0f;
 static uint8_t homeValid = 0U;
 static void Motor_ReportError(MotorError_t error);
 static void Motor_EnterSafeStop(MotorError_t error);
+static uint8_t Motor_HandleCommLostRequest(void);
 /* 디버깅용 변수 */
 volatile int16_t debugTheta1 = 0;
 volatile int16_t debugTheta2 = 0;
@@ -74,14 +75,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == ESTOP_Pin)
     {
-        /*
-         * ISR에서 θ1 Stepper 즉시 Disable
-         */
-        Stepper_EmergencyDisableFromISR();
+        /* STEP PWM까지 즉시 정지 */
+        Stepper_EmergencyStop();
 
-        /*
-         * MotorTask에서 ERROR latch 처리 요청
-         */
+        /* MotorTask에서 ERROR latch 처리 */
         motorEstopRequest = 1U;
     }
 }
@@ -192,6 +189,11 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
         osDelay(1U);
     }
 
+    if (Motor_HandleCommLostRequest() != 0U)
+    {
+        return 0U;
+    }
+
     Stepper_Disable();
 
     osDelay(THETA1_SETTLING_TIME_MS);
@@ -252,6 +254,11 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
         while (Stepper_IsBusy() != 0U)
         {
             osDelay(1U);
+        }
+
+        if (Motor_HandleCommLostRequest() != 0U)
+        {
+            return 0U;
         }
 
         Stepper_Disable();
@@ -379,6 +386,23 @@ static void Motor_EnterSafeStop(MotorError_t error)
     );
 }
 
+static uint8_t Motor_HandleCommLostRequest(void)
+{
+    if (motorCommLostRequest == 0U)
+    {
+        return 0U;
+    }
+
+    motorCommLostRequest = 0U;
+
+    Motor_EnterSafeStop(
+        MOTOR_ERROR_COMM_LOST
+    );
+
+    return 1U;
+}
+
+
 static void Motor_ReportCommandDone(uint8_t commandType)
 {
     MotorStatusMessage_t message;
@@ -465,6 +489,17 @@ void StartMotorTask(void *argument)
     	    NULL,
     	    MOTOR_TASK_QUEUE_WAIT_MS
     	);
+
+    	if (motorEstopRequest != 0U)
+    	{
+    	    motorEstopRequest = 0U;
+
+    	    Motor_EnterSafeStop(
+    	        MOTOR_ERROR_ESTOP
+    	    );
+
+    	    continue;
+    	}
 
     	if (motorCommLostRequest != 0U)
     	{
@@ -559,6 +594,32 @@ void StartMotorTask(void *argument)
 
 				servoSmoothStatus =
 				    Servo_MoveSmooth(theta2Deg, theta3Deg);
+
+				if (servoSmoothStatus == SERVO_ERROR_ESTOP)
+				{
+				    /*
+				     * ESTOP 요청은 여기서 소비.
+				     */
+				    motorEstopRequest = 0U;
+
+				    Motor_EnterSafeStop(
+				        MOTOR_ERROR_ESTOP
+				    );
+
+				    break;
+				}
+
+				/* 추가 */
+				if (servoSmoothStatus == SERVO_ERROR_COMM_LOST)
+				{
+				    motorCommLostRequest = 0U;
+
+				    Motor_EnterSafeStop(
+				        MOTOR_ERROR_COMM_LOST
+				    );
+
+				    break;
+				}
 
 				if (servoSmoothStatus != SERVO_OK)
 				{
@@ -673,6 +734,17 @@ void StartMotorTask(void *argument)
 				servoSmoothStatus =
 					Servo_MoveSmooth(homeTheta2Deg,
 									 homeTheta3Deg);
+
+				if (servoSmoothStatus == SERVO_ERROR_ESTOP)
+				{
+				    motorEstopRequest = 0U;
+
+				    Motor_EnterSafeStop(
+				        MOTOR_ERROR_ESTOP
+				    );
+
+				    break;
+				}
 
 				if (servoSmoothStatus != SERVO_OK)
 				{
@@ -799,11 +871,28 @@ void StartMotorTask(void *argument)
 						}
 
 						debugServo2Status =
-						    Servo_MoveSmooth(targetDeg, commandedTheta3Deg);
+						    Servo_MoveSmooth(
+						        targetDeg,
+						        commandedTheta3Deg
+						    );
+
+						if (debugServo2Status == SERVO_ERROR_ESTOP)
+						{
+						    motorEstopRequest = 0U;
+
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_ESTOP
+						    );
+
+						    break;
+						}
 
 						if (debugServo2Status != SERVO_OK)
 						{
-							Motor_EnterSafeStop(MOTOR_ERROR_SERVO2);
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_SERVO2
+						    );
+
 						    break;
 						}
 
@@ -823,6 +912,17 @@ void StartMotorTask(void *argument)
 						}
 
 						debugServo3Status = Servo_MoveSmooth(commandedTheta2Deg, targetDeg);
+
+						if (debugServo3Status == SERVO_ERROR_ESTOP)
+						{
+						    motorEstopRequest = 0U;
+
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_ESTOP
+						    );
+
+						    break;
+						}
 
 						if(debugServo3Status != SERVO_OK){
 							Motor_EnterSafeStop(MOTOR_ERROR_SERVO3);
@@ -849,9 +949,26 @@ void StartMotorTask(void *argument)
 
 			case MOTOR_COMMAND_CLEAR_ERROR:
 			{
+				float stableTheta1Deg;
+				float currentTheta2Deg;
+				float currentTheta3Deg;
 			    /*
-			     * Jetson 통신이 아직 복구되지 않았다면
-			     * ERROR 상태 해제 금지.
+			     * ESTOP 버튼이 아직 눌려 있으면
+			     * ERROR 해제 금지
+			     *
+			     * 현재 ESTOP은 Rising Edge로 동작했고,
+			     * 실제 버튼을 눌렀을 때 인터럽트가 발생했으므로
+			     * 눌린 상태를 HIGH로 사용.
+			     */
+			    if (HAL_GPIO_ReadPin(ESTOP_GPIO_Port, ESTOP_Pin) == GPIO_PIN_SET)
+			    {
+			        Motor_ReportError(MOTOR_ERROR_ESTOP);
+			        break;
+			    }
+
+			    /*
+			     * 통신이 아직 복구되지 않았다면
+			     * ERROR 해제 금지
 			     */
 			    if (communicationLost != 0U)
 			    {
@@ -859,20 +976,12 @@ void StartMotorTask(void *argument)
 			        break;
 			    }
 
-			    /*
-			     * Encoder가 여전히 고장난 상태에서는
-			     * ERROR를 풀면 안 됨.
-			     */
 			    if (Motor_IsEncoderReady() == 0U)
 			    {
 			        Motor_ReportError(MOTOR_ERROR_ENCODER);
 			        break;
 			    }
 
-			    /*
-			     * Stepper가 비정상적으로 동작 중인 상태에서도
-			     * ERROR 해제 금지.
-			     */
 			    if (Stepper_IsBusy() != 0U)
 			    {
 			        Motor_ReportError(MOTOR_ERROR_STEPPER_BUSY);
@@ -880,6 +989,21 @@ void StartMotorTask(void *argument)
 			    }
 
 			    Stepper_EmergencyStop();
+
+			    if (Motor_GetStableTheta1Angle(&stableTheta1Deg) == 0U)
+			    {
+			        Motor_ReportError(MOTOR_ERROR_ENCODER);
+			        break;
+			    }
+
+			    Servo_GetCurrentAngles(
+			        &currentTheta2Deg,
+			        &currentTheta3Deg
+			    );
+
+			    commandedTheta1Deg = stableTheta1Deg;
+			    commandedTheta2Deg = currentTheta2Deg;
+			    commandedTheta3Deg = currentTheta3Deg;
 
 			    motorState = MOTOR_STATE_IDLE;
 

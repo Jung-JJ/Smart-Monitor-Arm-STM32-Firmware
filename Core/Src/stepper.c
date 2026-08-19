@@ -46,6 +46,7 @@
 static volatile uint32_t stepCount = 0U;
 static volatile uint32_t targetStepCount = 0U;
 static volatile uint8_t stepperBusy = 0U;
+extern volatile uint8_t motorCommLostRequest;
 
 void Stepper_EmergencyDisableFromISR(void)
 {
@@ -122,14 +123,30 @@ void Stepper_HandlePulseFinished(void)
         return;
     }
 
+    /*
+     * Heartbeat timeout 발생 시
+     * 다음 STEP PWM 인터럽트에서 즉시 정지
+     */
+    if (motorCommLostRequest != 0U)
+    {
+        Stepper_EmergencyStop();
+        return;
+    }
+
     stepCount++;
 
     if (stepCount >= targetStepCount)
     {
-        (void)HAL_TIM_PWM_Stop_IT(&htim3,
-                                  STEPPER_TIMER_CHANNEL);
+        (void)HAL_TIM_PWM_Stop_IT(
+            &htim3,
+            STEPPER_TIMER_CHANNEL
+        );
 
-        __HAL_TIM_SET_COMPARE(&htim3, STEPPER_TIMER_CHANNEL, 0U);
+        __HAL_TIM_SET_COMPARE(
+            &htim3,
+            STEPPER_TIMER_CHANNEL,
+            0U
+        );
 
         Stepper_Disable();
 

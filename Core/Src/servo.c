@@ -24,9 +24,12 @@
 #define SERVO_SPEED_DEG_PER_SEC      20.0f //서보 속도 조저
 #define SERVO_STEP_DEG               (SERVO_SPEED_DEG_PER_SEC * ((float)SERVO_UPDATE_PERIOD_MS / 1000.0f))
 
+extern volatile uint8_t motorEstopRequest;
+extern volatile uint8_t motorCommLostRequest;
 
 static float servoTheta2CurrentDeg = 0.0f;
 static float servoTheta3CurrentDeg = 0.0f;
+
 
 
 
@@ -174,17 +177,35 @@ ServoStatus_t Servo_MoveSmooth(float theta2_deg,
     while ((servoTheta2CurrentDeg != theta2_deg) ||
            (servoTheta3CurrentDeg != theta3_deg))
     {
+        /* ESTOP 최우선 */
+        if (motorEstopRequest != 0U)
+        {
+            return SERVO_ERROR_ESTOP;
+        }
+
+        /* Heartbeat timeout이 이미 검출된 경우 */
+        if (motorCommLostRequest != 0U)
+        {
+            return SERVO_ERROR_COMM_LOST;
+        }
+
         nextTheta2Deg =
-            Servo_MoveToward(servoTheta2CurrentDeg,
-                             theta2_deg);
+            Servo_MoveToward(
+                servoTheta2CurrentDeg,
+                theta2_deg
+            );
 
         nextTheta3Deg =
-            Servo_MoveToward(servoTheta3CurrentDeg,
-                             theta3_deg);
+            Servo_MoveToward(
+                servoTheta3CurrentDeg,
+                theta3_deg
+            );
 
         status =
-            Servo_SetAngle(SERVO_CHANNEL_THETA2,
-                           nextTheta2Deg);
+            Servo_SetAngle(
+                SERVO_CHANNEL_THETA2,
+                nextTheta2Deg
+            );
 
         if (status != SERVO_OK)
         {
@@ -192,8 +213,10 @@ ServoStatus_t Servo_MoveSmooth(float theta2_deg,
         }
 
         status =
-            Servo_SetAngle(SERVO_CHANNEL_THETA3,
-                           nextTheta3Deg);
+            Servo_SetAngle(
+                SERVO_CHANNEL_THETA3,
+                nextTheta3Deg
+            );
 
         if (status != SERVO_OK)
         {
@@ -204,4 +227,18 @@ ServoStatus_t Servo_MoveSmooth(float theta2_deg,
     }
 
     return SERVO_OK;
+}
+
+void Servo_GetCurrentAngles(float *theta2_deg,
+                            float *theta3_deg)
+{
+    if (theta2_deg != NULL)
+    {
+        *theta2_deg = servoTheta2CurrentDeg;
+    }
+
+    if (theta3_deg != NULL)
+    {
+        *theta3_deg = servoTheta3CurrentDeg;
+    }
 }

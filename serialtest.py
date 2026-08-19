@@ -19,6 +19,10 @@ MAX_DATA_LENGTH = 16
 # 확인하고 싶으면 True로 변경
 SHOW_HEARTBEAT_ACK = False
 
+# Recovery timeout
+CLEAR_ERROR_TIMEOUT_SEC = 5.0
+MOVE_HOME_TIMEOUT_SEC = 90.0
+
 
 # ============================================================
 # Python -> STM32
@@ -31,6 +35,7 @@ MSG_SET_HOME = 0x11
 MSG_MOVE_HOME = 0x12
 MSG_JOG = 0x13
 MSG_CLEAR_ERROR = 0x14
+
 
 # ============================================================
 # STM32 -> Python
@@ -67,6 +72,7 @@ COMMAND_NAMES = {
     MSG_CLEAR_ERROR: "CLEAR_ERROR",
 }
 
+
 ERROR_NAMES = {
     0x00: "NONE",
     0x01: "INVALID_TARGET",
@@ -82,8 +88,6 @@ ERROR_NAMES = {
     0x0B: "INVALID_COMMAND",
     0x0C: "COMM_LOST",
     0x0D: "ENCODER",
-    0x0C: "COMM_LOST",
-    0x0D: "ENCODER",
     0x0E: "SYSTEM_LOCKED",
     0x0F: "ESTOP",
 }
@@ -97,6 +101,13 @@ alive_counter = 0
 heartbeat_enabled = True
 
 write_lock = threading.Lock()
+
+# Recovery용 이벤트
+clear_error_done_event = threading.Event()
+move_home_done_event = threading.Event()
+recovery_error_event = threading.Event()
+
+last_error_code = None
 
 
 # ============================================================
@@ -334,6 +345,11 @@ def send_move_home(ser):
         frame.hex(" ").upper()
     )
 
+
+# ============================================================
+# CLEAR_ERROR
+# ============================================================
+
 def send_clear_error(ser):
     data = b""
 
@@ -355,11 +371,185 @@ def send_clear_error(ser):
         frame.hex(" ").upper()
     )
 
+
+# ============================================================
+# WAIT COMMAND DONE OR ERROR
+# ============================================================
+
+def wait_for_done_or_error(
+    done_event,
+    timeout_sec
+):
+    start_time = time.monotonic()
+
+    while (
+        time.monotonic() - start_time
+    ) < timeout_sec:
+
+        if done_event.is_set():
+            return True
+
+        if recovery_error_event.is_set():
+            return False
+
+        time.sleep(0.05)
+
+    return False
+
+
+# ============================================================
+# RECOVER -> HOME
+# ============================================================
+
+def recover_to_home(ser):
+    global last_error_code
+
+    print()
+    print(
+        "========== RECOVERY START =========="
+    )
+
+    # --------------------------------------------------------
+    # 이전 이벤트 초기화
+    # --------------------------------------------------------
+
+    clear_error_done_event.clear()
+    move_home_done_event.clear()
+    recovery_error_event.clear()
+
+    last_error_code = None
+
+
+    # --------------------------------------------------------
+    # 1. CLEAR_ERROR
+    # --------------------------------------------------------
+
+    print()
+    print(
+        "[1/2] CLEAR_ERROR 요청"
+    )
+
+    send_clear_error(
+        ser
+    )
+
+    clear_success = wait_for_done_or_error(
+        clear_error_done_event,
+        CLEAR_ERROR_TIMEOUT_SEC
+    )
+
+    if not clear_success:
+
+        if recovery_error_event.is_set():
+
+            error_name = ERROR_NAMES.get(
+                last_error_code,
+                f"UNKNOWN(0x{last_error_code:02X})"
+                if last_error_code is not None
+                else "UNKNOWN"
+            )
+
+            print()
+            print(
+                "RECOVERY 중단"
+            )
+
+            print(
+                f"CLEAR_ERROR 실패 : "
+                f"{error_name}"
+            )
+
+        else:
+
+            print()
+            print(
+                "CLEAR_ERROR TIMEOUT"
+            )
+
+        print(
+            "MOVE_HOME을 실행하지 않습니다."
+        )
+
+        return
+
+
+    print()
+    print(
+        "CLEAR_ERROR 완료"
+    )
+
+
+    # --------------------------------------------------------
+    # 2. MOVE_HOME
+    # --------------------------------------------------------
+
+    move_home_done_event.clear()
+    recovery_error_event.clear()
+
+    last_error_code = None
+
+    print()
+    print(
+        "[2/2] MOVE_HOME 요청"
+    )
+
+    send_move_home(
+        ser
+    )
+
+    move_success = wait_for_done_or_error(
+        move_home_done_event,
+        MOVE_HOME_TIMEOUT_SEC
+    )
+
+    if not move_success:
+
+        if recovery_error_event.is_set():
+
+            error_name = ERROR_NAMES.get(
+                last_error_code,
+                f"UNKNOWN(0x{last_error_code:02X})"
+                if last_error_code is not None
+                else "UNKNOWN"
+            )
+
+            print()
+            print(
+                "RECOVERY 중단"
+            )
+
+            print(
+                f"MOVE_HOME 실패 : "
+                f"{error_name}"
+            )
+
+        else:
+
+            print()
+            print(
+                "MOVE_HOME TIMEOUT"
+            )
+
+        return
+
+
+    print()
+    print(
+        "MOVE_HOME 완료"
+    )
+
+    print()
+    print(
+        "========== RECOVERY COMPLETE =========="
+    )
+
+
 # ============================================================
 # RX THREAD
 # ============================================================
 
 def receive_thread(ser):
+    global last_error_code
 
     try:
 
@@ -385,7 +575,10 @@ def receive_thread(ser):
             header = ser.read(2)
 
             if len(header) != 2:
-                print("\nRX HEADER LENGTH ERROR")
+                print(
+                    "\nRX HEADER LENGTH ERROR"
+                )
+
                 continue
 
             msg_id = header[0]
@@ -393,8 +586,10 @@ def receive_thread(ser):
 
             if length > MAX_DATA_LENGTH:
                 print(
-                    f"\nRX DATA LENGTH INVALID : {length}"
+                    f"\nRX DATA LENGTH INVALID : "
+                    f"{length}"
                 )
+
                 continue
 
 
@@ -410,6 +605,7 @@ def receive_thread(ser):
                     f"expected={length}, "
                     f"received={len(data)}"
                 )
+
                 continue
 
 
@@ -423,6 +619,7 @@ def receive_thread(ser):
                 print(
                     "\nCHECKSUM BYTE ERROR"
                 )
+
                 continue
 
 
@@ -436,6 +633,7 @@ def receive_thread(ser):
                 print(
                     "\nEND BYTE ERROR"
                 )
+
                 continue
 
 
@@ -449,11 +647,13 @@ def receive_thread(ser):
             )
 
             if calc_checksum != rx_checksum[0]:
+
                 print(
                     f"\nCHECKSUM ERROR : "
                     f"RX=0x{rx_checksum[0]:02X}, "
                     f"CALC=0x{calc_checksum:02X}"
                 )
+
                 continue
 
 
@@ -467,6 +667,7 @@ def receive_thread(ser):
                     print(
                         "\nACK LENGTH ERROR"
                     )
+
                     continue
 
                 ack_id = data[0]
@@ -475,7 +676,8 @@ def receive_thread(ser):
 
                     if SHOW_HEARTBEAT_ACK:
                         print(
-                            "\nACK : HEARTBEAT (0x01)"
+                            "\nACK : "
+                            "HEARTBEAT (0x01)"
                         )
 
                 else:
@@ -503,6 +705,7 @@ def receive_thread(ser):
                         f"\nCOMMAND_DONE LENGTH ERROR : "
                         f"{len(data)}"
                     )
+
                     continue
 
                 completed_id = data[0]
@@ -519,6 +722,20 @@ def receive_thread(ser):
                 )
 
 
+                # ---------------------------------------------
+                # Recovery Event
+                # ---------------------------------------------
+
+                if completed_id == MSG_CLEAR_ERROR:
+
+                    clear_error_done_event.set()
+
+
+                elif completed_id == MSG_MOVE_HOME:
+
+                    move_home_done_event.set()
+
+
             # =================================================
             # ERROR
             # =================================================
@@ -526,14 +743,18 @@ def receive_thread(ser):
             elif msg_id == MSG_ERROR:
 
                 if len(data) != 1:
+
                     print(
                         f"\nMOTOR ERROR : "
                         f"INVALID DATA LENGTH "
                         f"({len(data)})"
                     )
+
                     continue
 
                 error_code = data[0]
+
+                last_error_code = error_code
 
                 error_name = ERROR_NAMES.get(
                     error_code,
@@ -545,6 +766,11 @@ def receive_thread(ser):
                     f"{error_name} "
                     f"(0x{error_code:02X})"
                 )
+
+
+                # Recovery가 진행 중이라면
+                # 바로 중단할 수 있도록 알림
+                recovery_error_event.set()
 
 
             # =================================================
@@ -652,10 +878,12 @@ def receive_thread(ser):
             elif msg_id == MSG_READY:
 
                 if len(data) != 0:
+
                     print(
                         f"\nREADY LENGTH ERROR : "
                         f"{len(data)}"
                     )
+
                     continue
 
                 print(
@@ -739,6 +967,16 @@ def print_menu():
     print()
 
     print(
+        "r  : CLEAR_ERROR"
+    )
+
+    print(
+        "rh : CLEAR_ERROR -> MOVE_HOME"
+    )
+
+    print()
+
+    print(
         "x  : HEARTBEAT OFF"
     )
 
@@ -750,9 +988,6 @@ def print_menu():
 
     print(
         "q  : QUIT"
-    )
-    print(
-        "r  : CLEAR_ERROR"
     )
 
     print(
@@ -960,6 +1195,28 @@ def main():
 
 
                 # ---------------------------------------------
+                # CLEAR_ERROR
+                # ---------------------------------------------
+
+                elif command == "r":
+
+                    send_clear_error(
+                        ser
+                    )
+
+
+                # ---------------------------------------------
+                # RECOVERY -> HOME
+                # ---------------------------------------------
+
+                elif command == "rh":
+
+                    recover_to_home(
+                        ser
+                    )
+
+
+                # ---------------------------------------------
                 # HEARTBEAT OFF
                 # ---------------------------------------------
 
@@ -1011,14 +1268,6 @@ def main():
                 elif command == "help":
 
                     print_menu()
-
-
-
-                elif command == "r":
-
-                    send_clear_error(
-                        ser
-                    )
 
 
                 # ---------------------------------------------
