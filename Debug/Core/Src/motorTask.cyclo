@@ -11,4 +11,4 @@
 ../Core/Src/motorTask.c:406:13:Motor_ReportCommandDone	2
 ../Core/Src/motorTask.c:419:16:Motor_CheckTarget	8
 ../Core/Src/motorTask.c:443:6:Motor_GetCommandedAngles	4
-../Core/Src/motorTask.c:462:6:StartMotorTask	57
+../Core/Src/motorTask.c:462:6:StartMotorTask	60

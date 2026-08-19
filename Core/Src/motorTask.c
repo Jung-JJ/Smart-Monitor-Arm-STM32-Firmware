@@ -746,6 +746,17 @@ void StartMotorTask(void *argument)
 				    break;
 				}
 
+				if (servoSmoothStatus == SERVO_ERROR_COMM_LOST)
+				{
+				    motorCommLostRequest = 0U;
+
+				    Motor_EnterSafeStop(
+				        MOTOR_ERROR_COMM_LOST
+				    );
+
+				    break;
+				}
+
 				if (servoSmoothStatus != SERVO_OK)
 				{
 					Stepper_Disable();
@@ -778,6 +789,7 @@ void StartMotorTask(void *argument)
 			{
 				float deltaDeg;
 				float targetDeg;
+				uint8_t jogCommandSucceeded = 0U;
 
 				deltaDeg = (float)command.delta_x10 / 10.0f;
 
@@ -858,6 +870,7 @@ void StartMotorTask(void *argument)
 
 						commandedTheta1Deg = targetDeg;
 						motorState = MOTOR_STATE_IDLE;
+						jogCommandSucceeded = 1U;
 
 						break;
 					}
@@ -887,6 +900,17 @@ void StartMotorTask(void *argument)
 						    break;
 						}
 
+						if (debugServo2Status == SERVO_ERROR_COMM_LOST)
+						{
+						    motorCommLostRequest = 0U;
+
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_COMM_LOST
+						    );
+
+						    break;
+						}
+
 						if (debugServo2Status != SERVO_OK)
 						{
 						    Motor_EnterSafeStop(
@@ -898,6 +922,7 @@ void StartMotorTask(void *argument)
 
 						commandedTheta2Deg = targetDeg;
 						motorState = MOTOR_STATE_IDLE;
+						jogCommandSucceeded = 1U;
 						break;
 					}
 
@@ -924,6 +949,17 @@ void StartMotorTask(void *argument)
 						    break;
 						}
 
+						if (debugServo3Status == SERVO_ERROR_COMM_LOST)
+						{
+						    motorCommLostRequest = 0U;
+
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_COMM_LOST
+						    );
+
+						    break;
+						}
+
 						if(debugServo3Status != SERVO_OK){
 							Motor_EnterSafeStop(MOTOR_ERROR_SERVO3);
 							break;
@@ -931,6 +967,7 @@ void StartMotorTask(void *argument)
 
 						commandedTheta3Deg = targetDeg;
 						motorState = MOTOR_STATE_IDLE;
+						jogCommandSucceeded = 1U;
 						break;
 					}
 
@@ -940,8 +977,11 @@ void StartMotorTask(void *argument)
 						break;
 				}
 
-				if (motorState == MOTOR_STATE_IDLE){
-				    Motor_ReportCommandDone((uint8_t)command.type);
+				if (jogCommandSucceeded != 0U)
+				{
+				    Motor_ReportCommandDone(
+				        (uint8_t)command.type
+				    );
 				}
 
 				break;
