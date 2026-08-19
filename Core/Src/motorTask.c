@@ -51,6 +51,7 @@ static float homeTheta3Deg = 0.0f;
 static uint8_t homeValid = 0U;
 static void Motor_ReportError(MotorError_t error);
 static void Motor_EnterSafeStop(MotorError_t error);
+static uint8_t Motor_HandleEstopRequest(void);
 static uint8_t Motor_HandleCommLostRequest(void);
 /* 디버깅용 변수 */
 volatile int16_t debugTheta1 = 0;
@@ -189,6 +190,12 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
         osDelay(1U);
     }
 
+    if (Motor_HandleEstopRequest() != 0U)
+    {
+        return 0U;
+    }
+
+
     if (Motor_HandleCommLostRequest() != 0U)
     {
         return 0U;
@@ -218,6 +225,15 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
     while (Motor_AbsFloat(debugTheta1PositionErrorDeg) >
            THETA1_POSITION_TOLERANCE_DEG)
     {
+    	if (Motor_HandleEstopRequest() != 0U)
+    	    {
+    	        return 0U;
+    	    }
+
+		if (Motor_HandleCommLostRequest() != 0U)
+		{
+			return 0U;
+		}
         /*
          * 비정상적으로 큰 잔여오차는
          * 센서 오류 가능성이 있으므로 따라가지 않음
@@ -243,6 +259,17 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
             Stepper_MoveRelative(
                 debugTheta1PositionErrorDeg);
 
+        if (debugStepperStatus == STEPPER_ERROR_ESTOP)
+        {
+            motorEstopRequest = 0U;
+
+            Motor_EnterSafeStop(
+                MOTOR_ERROR_ESTOP
+            );
+
+            return 0U;
+        }
+
         if (debugStepperStatus != STEPPER_OK)
         {
         	Motor_EnterSafeStop(MOTOR_ERROR_STEPPER);
@@ -254,6 +281,11 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
         while (Stepper_IsBusy() != 0U)
         {
             osDelay(1U);
+        }
+
+        if (Motor_HandleEstopRequest() != 0U)
+        {
+            return 0U;
         }
 
         if (Motor_HandleCommLostRequest() != 0U)
@@ -279,6 +311,15 @@ static uint8_t Motor_CorrectTheta1Position(float targetDeg)
             targetDeg - stableTheta1Deg;
 
         debugTheta1CorrectionCount++;
+    }
+    if (Motor_HandleEstopRequest() != 0U)
+    {
+        return 0U;
+    }
+
+    if (Motor_HandleCommLostRequest() != 0U)
+    {
+        return 0U;
     }
 
     debugTheta1WithinTolerance = 1U;
@@ -384,6 +425,22 @@ static void Motor_EnterSafeStop(MotorError_t error)
         0U,
         0U
     );
+}
+
+static uint8_t Motor_HandleEstopRequest(void)
+{
+    if (motorEstopRequest == 0U)
+    {
+        return 0U;
+    }
+
+    motorEstopRequest = 0U;
+
+    Motor_EnterSafeStop(
+        MOTOR_ERROR_ESTOP
+    );
+
+    return 1U;
 }
 
 static uint8_t Motor_HandleCommLostRequest(void)
@@ -580,6 +637,18 @@ void StartMotorTask(void *argument)
 
 					debugStepperStatus = Stepper_MoveRelative(theta1MoveDeg);
 
+					if (debugStepperStatus == STEPPER_ERROR_ESTOP)
+					{
+						motorEstopRequest = 0U;
+
+						Motor_EnterSafeStop(
+							MOTOR_ERROR_ESTOP
+						);
+
+						break;
+					}
+
+
 					if(debugStepperStatus != STEPPER_OK){
 						Motor_EnterSafeStop(MOTOR_ERROR_STEPPER);
 						break;
@@ -716,6 +785,17 @@ void StartMotorTask(void *argument)
 				{
 					debugStepperStatus =
 						Stepper_MoveRelative(theta1MoveDeg);
+
+					if (debugStepperStatus == STEPPER_ERROR_ESTOP)
+					{
+						motorEstopRequest = 0U;
+
+						Motor_EnterSafeStop(
+							MOTOR_ERROR_ESTOP
+						);
+
+						break;
+					}
 
 					if (debugStepperStatus != STEPPER_OK)
 					{
@@ -854,6 +934,17 @@ void StartMotorTask(void *argument)
 
 						debugStepperStatus =
 							Stepper_MoveRelative(theta1MoveDeg);
+
+						if (debugStepperStatus == STEPPER_ERROR_ESTOP)
+						{
+						    motorEstopRequest = 0U;
+
+						    Motor_EnterSafeStop(
+						        MOTOR_ERROR_ESTOP
+						    );
+
+						    break;
+						}
 
 						if (debugStepperStatus != STEPPER_OK)
 						{

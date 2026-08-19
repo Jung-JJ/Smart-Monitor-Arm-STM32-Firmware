@@ -47,6 +47,27 @@ static volatile uint32_t stepCount = 0U;
 static volatile uint32_t targetStepCount = 0U;
 static volatile uint8_t stepperBusy = 0U;
 extern volatile uint8_t motorCommLostRequest;
+extern volatile uint8_t motorEstopRequest;
+
+static uint8_t Stepper_IsEstopActive(void)
+{
+    if (motorEstopRequest != 0U)
+    {
+        return 1U;
+    }
+
+    /*
+     * 현재 실제 ESTOP 구성은 HIGH = 눌림.
+     * CLEAR_ERROR에서도 동일한 기준을 사용 중.
+     */
+    if (HAL_GPIO_ReadPin(ESTOP_GPIO_Port,
+                         ESTOP_Pin) == GPIO_PIN_SET)
+    {
+        return 1U;
+    }
+
+    return 0U;
+}
 
 void Stepper_EmergencyDisableFromISR(void)
 {
@@ -166,6 +187,11 @@ StepperStatus_t Stepper_MoveRelative(float angle_deg)
     {
         return STEPPER_ERROR_BUSY;
     }
+    if (Stepper_IsEstopActive() != 0U)
+    {
+        Stepper_EmergencyStop();
+        return STEPPER_ERROR_ESTOP;
+    }
 
     if (angle_deg == 0.0f)
     {
@@ -191,7 +217,14 @@ StepperStatus_t Stepper_MoveRelative(float angle_deg)
 
     Stepper_SetDirection(direction);
 
+
     Stepper_Enable();
+
+    if (Stepper_IsEstopActive() != 0U)
+    {
+        Stepper_EmergencyStop();
+        return STEPPER_ERROR_ESTOP;
+    }
 
     stepCount = 0U;
     targetStepCount = requestedSteps;
@@ -202,6 +235,16 @@ StepperStatus_t Stepper_MoveRelative(float angle_deg)
     __HAL_TIM_SET_COMPARE(&htim3, STEPPER_TIMER_CHANNEL, STEPPER_PWM_COMPARE);
 
     halStatus = HAL_TIM_PWM_Start_IT(&htim3, STEPPER_TIMER_CHANNEL);
+
+    /*
+     * Enable 이후 ~ PWM Start 사이에
+     * ESTOP이 발생한 경우까지 최종 방어.
+     */
+    if (Stepper_IsEstopActive() != 0U)
+    {
+        Stepper_EmergencyStop();
+        return STEPPER_ERROR_ESTOP;
+    }
 
     if (halStatus != HAL_OK)
     {
